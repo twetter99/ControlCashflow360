@@ -1,0 +1,255 @@
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  addDoc,
+  updateDoc,
+  query,
+  where,
+  orderBy,
+  Timestamp,
+  DocumentData,
+  QueryConstraint,
+  limit,
+} from 'firebase/firestore';
+import { getDb } from '@/lib/firebase/config';
+import { Transaction, CreateTransactionInput, UpdateTransactionInput, TransactionStatus } from '@/types';
+
+const COLLECTION_NAME = 'transactions';
+
+/**
+ * Convierte un documento de Firestore a Transaction
+ */
+function documentToTransaction(id: string, data: DocumentData): Transaction {
+  return {
+    id,
+    companyId: data.companyId,
+    accountId: data.accountId,
+    type: data.type,
+    amount: data.amount,
+    status: data.status,
+    dueDate: data.dueDate?.toDate(),
+    paidDate: data.paidDate?.toDate() || null,
+    category: data.category,
+    description: data.description,
+    thirdPartyId: data.thirdPartyId,
+    thirdPartyName: data.thirdPartyName,
+    notes: data.notes,
+    recurrenceId: data.recurrenceId,
+    createdBy: data.createdBy,
+    lastUpdatedBy: data.lastUpdatedBy,
+    createdAt: data.createdAt?.toDate(),
+    updatedAt: data.updatedAt?.toDate(),
+  };
+}
+
+/**
+ * Obtener transacciones con filtros
+ */
+export async function getTransactions(options: {
+  companyId?: string;
+  status?: TransactionStatus;
+  type?: 'INCOME' | 'EXPENSE';
+  fromDate?: Date;
+  toDate?: Date;
+  limitCount?: number;
+}): Promise<Transaction[]> {
+  const db = getDb();
+  const constraints: QueryConstraint[] = [];
+  
+  if (options.companyId) {
+    constraints.push(where('companyId', '==', options.companyId));
+  }
+  if (options.status) {
+    constraints.push(where('status', '==', options.status));
+  }
+  if (options.type) {
+    constraints.push(where('type', '==', options.type));
+  }
+  if (options.fromDate) {
+    constraints.push(where('dueDate', '>=', Timestamp.fromDate(options.fromDate)));
+  }
+  if (options.toDate) {
+    constraints.push(where('dueDate', '<=', Timestamp.fromDate(options.toDate)));
+  }
+  
+  constraints.push(orderBy('dueDate', 'asc'));
+  
+  if (options.limitCount) {
+    constraints.push(limit(options.limitCount));
+  }
+
+  const q = query(collection(db, COLLECTION_NAME), ...constraints);
+  const snapshot = await getDocs(q);
+  
+  return snapshot.docs.map((docSnap) => documentToTransaction(docSnap.id, docSnap.data()));
+}
+
+/**
+ * Obtener transacciones pendientes
+ */
+export async function getPendingTransactions(companyId?: string): Promise<Transaction[]> {
+  return getTransactions({ companyId, status: 'PENDING' });
+}
+
+/**
+ * Obtener transacciones pendientes por rango de fechas
+ */
+export async function getPendingTransactionsByDateRange(
+  fromDate: Date,
+  toDate: Date,
+  companyId?: string
+): Promise<Transaction[]> {
+  return getTransactions({
+    companyId,
+    status: 'PENDING',
+    fromDate,
+    toDate,
+  });
+}
+
+/**
+ * Obtener una transacción por ID
+ */
+export async function getTransactionById(id: string): Promise<Transaction | null> {
+  const db = getDb();
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const snapshot = await getDoc(docRef);
+  
+  if (!snapshot.exists()) {
+    return null;
+  }
+  
+  return documentToTransaction(snapshot.id, snapshot.data());
+}
+
+/**
+ * Crear una nueva transacción
+ */
+export async function createTransaction(data: CreateTransactionInput): Promise<Transaction> {
+  const db = getDb();
+  const docData = {
+    ...data,
+    dueDate: Timestamp.fromDate(data.dueDate),
+    paidDate: data.paidDate ? Timestamp.fromDate(data.paidDate) : null,
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  };
+
+  const docRef = await addDoc(collection(db, COLLECTION_NAME), docData);
+  
+  return {
+    ...data,
+    id: docRef.id,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
+/**
+ * Actualizar una transacción
+ */
+export async function updateTransaction(id: string, data: UpdateTransactionInput): Promise<void> {
+  const db = getDb();
+  const docRef = doc(db, COLLECTION_NAME, id);
+  
+  const updateData: Record<string, unknown> = {
+    ...data,
+    updatedAt: Timestamp.now(),
+  };
+  
+  if (data.dueDate) {
+    updateData.dueDate = Timestamp.fromDate(data.dueDate);
+  }
+  if (data.paidDate) {
+    updateData.paidDate = Timestamp.fromDate(data.paidDate);
+  }
+  
+  await updateDoc(docRef, updateData);
+}
+
+/**
+ * Marcar transacción como pagada
+ */
+export async function markTransactionAsPaid(
+  id: string,
+  paidDate: Date = new Date(),
+  userId: string
+): Promise<void> {
+  const db = getDb();
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, {
+    status: 'PAID',
+    paidDate: Timestamp.fromDate(paidDate),
+    lastUpdatedBy: userId,
+    updatedAt: Timestamp.now(),
+  });
+}
+
+/**
+ * Cancelar transacción
+ */
+export async function cancelTransaction(id: string, userId: string): Promise<void> {
+  const db = getDb();
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await updateDoc(docRef, {
+    status: 'CANCELLED',
+    lastUpdatedBy: userId,
+    updatedAt: Timestamp.now(),
+  });
+}
+
+/**
+ * Buscar transacciones por importe (para conciliación express)
+ */
+export async function findTransactionsByAmount(
+  amount: number,
+  tolerance: number = 0.01,
+  companyId?: string
+): Promise<Transaction[]> {
+  const pending = await getPendingTransactions(companyId);
+  const minAmount = amount - tolerance;
+  const maxAmount = amount + tolerance;
+  
+  return pending.filter(
+    (tx) => tx.amount >= minAmount && tx.amount <= maxAmount
+  );
+}
+
+/**
+ * Obtener total de ingresos pendientes
+ */
+export async function getTotalPendingIncomes(companyId?: string, toDate?: Date): Promise<number> {
+  const transactions = await getTransactions({
+    companyId,
+    status: 'PENDING',
+    type: 'INCOME',
+    toDate,
+  });
+  return transactions.reduce((sum, tx) => sum + tx.amount, 0);
+}
+
+/**
+ * Obtener total de gastos pendientes
+ */
+export async function getTotalPendingExpenses(companyId?: string, toDate?: Date): Promise<number> {
+  const transactions = await getTransactions({
+    companyId,
+    status: 'PENDING',
+    type: 'EXPENSE',
+    toDate,
+  });
+  return transactions.reduce((sum, tx) => sum + tx.amount, 0);
+}
+
+/**
+ * Obtener transacciones atrasadas (vencidas pero no pagadas)
+ */
+export async function getOverdueTransactions(companyId?: string): Promise<Transaction[]> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const pending = await getPendingTransactions(companyId);
+  return pending.filter((tx) => tx.dueDate < today);
+}

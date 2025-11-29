@@ -1,0 +1,268 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================
+    // FUNCIONES DE UTILIDAD
+    // ============================
+    
+    // Verificar si el usuario está autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Obtener datos del usuario desde Firestore
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // Verificar rol del usuario
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
+    }
+    
+    // Verificar si es admin
+    function isAdmin() {
+      return hasRole('ADMIN');
+    }
+    
+    // Verificar si es tesorero
+    function isTreasuryManager() {
+      return hasRole('ADMIN') || hasRole('TREASURY_MANAGER');
+    }
+    
+    // Verificar si es gestor de empresa
+    function isCompanyManager() {
+      return hasRole('ADMIN') || hasRole('TREASURY_MANAGER') || hasRole('COMPANY_MANAGER');
+    }
+    
+    // Verificar si tiene acceso a una empresa específica
+    function hasCompanyAccess(companyId) {
+      let userData = getUserData();
+      return isAdmin() || 
+             (userData.companyIds != null && companyId in userData.companyIds);
+    }
+    
+    // ============================
+    // COLECCIÓN: users
+    // ============================
+    match /users/{userId} {
+      // Usuarios pueden leer su propio perfil
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      
+      // Solo admins pueden crear usuarios
+      allow create: if isAdmin();
+      
+      // Usuarios pueden actualizar su propio perfil (excepto rol)
+      // Admins pueden actualizar cualquier perfil
+      allow update: if isAuthenticated() && (
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'companyIds'])) ||
+        isAdmin()
+      );
+      
+      // Solo admins pueden eliminar usuarios
+      allow delete: if isAdmin();
+    }
+    
+    // ============================
+    // COLECCIÓN: companies
+    // ============================
+    match /companies/{companyId} {
+      // Lectura: usuarios con acceso a la empresa o admins
+      allow read: if isAuthenticated() && (hasCompanyAccess(companyId) || isAdmin());
+      
+      // Crear empresas: solo admins
+      allow create: if isAdmin();
+      
+      // Actualizar empresas: tesoreros o admins
+      allow update: if isTreasuryManager();
+      
+      // Eliminar empresas: solo admins
+      allow delete: if isAdmin();
+    }
+    
+    // ============================
+    // COLECCIÓN: accounts
+    // ============================
+    match /accounts/{accountId} {
+      // Lectura: usuarios con acceso a la empresa de la cuenta
+      allow read: if isAuthenticated() && 
+                    hasCompanyAccess(resource.data.companyId);
+      
+      // Crear cuentas: gestores de empresa o superior
+      allow create: if isCompanyManager() && 
+                      hasCompanyAccess(request.resource.data.companyId);
+      
+      // Actualizar cuentas: gestores de empresa o superior con acceso
+      allow update: if isCompanyManager() && 
+                      hasCompanyAccess(resource.data.companyId);
+      
+      // Eliminar cuentas: tesoreros o admins
+      allow delete: if isTreasuryManager() && 
+                      hasCompanyAccess(resource.data.companyId);
+    }
+    
+    // ============================
+    // COLECCIÓN: creditLines
+    // ============================
+    match /creditLines/{creditLineId} {
+      // Lectura: usuarios con acceso a la empresa
+      allow read: if isAuthenticated() && 
+                    hasCompanyAccess(resource.data.companyId);
+      
+      // Crear pólizas: tesoreros o admins
+      allow create: if isTreasuryManager() && 
+                      hasCompanyAccess(request.resource.data.companyId);
+      
+      // Actualizar pólizas: tesoreros o admins con acceso
+      allow update: if isTreasuryManager() && 
+                      hasCompanyAccess(resource.data.companyId);
+      
+      // Eliminar pólizas: solo admins
+      allow delete: if isAdmin();
+    }
+    
+    // ============================
+    // COLECCIÓN: transactions
+    // ============================
+    match /transactions/{transactionId} {
+      // Lectura: usuarios con acceso a la empresa del movimiento
+      allow read: if isAuthenticated() && 
+                    hasCompanyAccess(resource.data.companyId);
+      
+      // Crear movimientos: gestores de empresa o superior
+      allow create: if isCompanyManager() && 
+                      hasCompanyAccess(request.resource.data.companyId);
+      
+      // Actualizar movimientos: gestores de empresa o superior
+      // No permite cambiar companyId
+      allow update: if isCompanyManager() && 
+                      hasCompanyAccess(resource.data.companyId) &&
+                      request.resource.data.companyId == resource.data.companyId;
+      
+      // Eliminar movimientos: tesoreros o admins
+      allow delete: if isTreasuryManager() && 
+                      hasCompanyAccess(resource.data.companyId);
+    }
+    
+    // ============================
+    // COLECCIÓN: recurrences
+    // ============================
+    match /recurrences/{recurrenceId} {
+      // Lectura: usuarios con acceso a la empresa
+      allow read: if isAuthenticated() && 
+                    hasCompanyAccess(resource.data.companyId);
+      
+      // Crear recurrencias: gestores de empresa o superior
+      allow create: if isCompanyManager() && 
+                      hasCompanyAccess(request.resource.data.companyId);
+      
+      // Actualizar recurrencias: gestores de empresa o superior
+      allow update: if isCompanyManager() && 
+                      hasCompanyAccess(resource.data.companyId);
+      
+      // Eliminar recurrencias: tesoreros o admins
+      allow delete: if isTreasuryManager();
+    }
+    
+    // ============================
+    // COLECCIÓN: thirdParties
+    // ============================
+    match /thirdParties/{thirdPartyId} {
+      // Lectura: usuarios con acceso a la empresa
+      allow read: if isAuthenticated() && 
+                    hasCompanyAccess(resource.data.companyId);
+      
+      // CRUD: gestores de empresa o superior
+      allow create, update: if isCompanyManager() && 
+                              hasCompanyAccess(request.resource.data.companyId);
+      
+      allow delete: if isCompanyManager() && 
+                      hasCompanyAccess(resource.data.companyId);
+    }
+    
+    // ============================
+    // COLECCIÓN: dailySnapshots
+    // ============================
+    match /dailySnapshots/{snapshotId} {
+      // Lectura: usuarios autenticados (pueden ver snapshots de sus empresas o globales)
+      allow read: if isAuthenticated() && 
+                    (resource.data.companyId == null || 
+                     hasCompanyAccess(resource.data.companyId));
+      
+      // Solo Cloud Functions pueden crear snapshots
+      allow create: if false;
+      
+      // No se pueden modificar ni eliminar snapshots
+      allow update, delete: if false;
+    }
+    
+    // ============================
+    // COLECCIÓN: scenarios
+    // ============================
+    match /scenarios/{scenarioId} {
+      // Lectura: el creador o tesoreros/admins
+      allow read: if isAuthenticated() && 
+                    (resource.data.createdBy == request.auth.uid || 
+                     isTreasuryManager());
+      
+      // Crear escenarios: gestores de empresa o superior
+      allow create: if isCompanyManager() && 
+                      request.resource.data.createdBy == request.auth.uid;
+      
+      // Actualizar/eliminar: solo el creador o admins
+      allow update, delete: if isAuthenticated() && 
+                              (resource.data.createdBy == request.auth.uid || isAdmin());
+    }
+    
+    // ============================
+    // COLECCIÓN: alertConfigs
+    // ============================
+    match /alertConfigs/{configId} {
+      // Lectura: todos los usuarios autenticados (filtrado en frontend)
+      allow read: if isAuthenticated();
+      
+      // Crear/actualizar configuraciones: tesoreros o admins
+      allow create, update: if isTreasuryManager();
+      
+      // Eliminar: tesoreros o admins
+      allow delete: if isTreasuryManager();
+    }
+    
+    // ============================
+    // COLECCIÓN: alerts (notificaciones generadas)
+    // ============================
+    match /alerts/{alertId} {
+      // Lectura: usuarios con acceso a la empresa de la alerta o alertas globales
+      allow read: if isAuthenticated() && 
+                    (resource.data.companyId == null || 
+                     hasCompanyAccess(resource.data.companyId));
+      
+      // Solo Cloud Functions pueden crear alertas
+      allow create: if false;
+      
+      // Usuarios pueden marcar como leídas sus alertas
+      allow update: if isAuthenticated() && 
+                      (resource.data.companyId == null || 
+                       hasCompanyAccess(resource.data.companyId)) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      
+      // Solo admins pueden eliminar alertas
+      allow delete: if isAdmin();
+    }
+    
+    // ============================
+    // COLECCIÓN: auditLogs (opcional para auditoría)
+    // ============================
+    match /auditLogs/{logId} {
+      // Lectura: solo admins
+      allow read: if isAdmin();
+      
+      // Solo el backend puede crear logs
+      allow create: if false;
+      
+      // No se pueden modificar ni eliminar logs
+      allow update, delete: if false;
+    }
+  }
+}
