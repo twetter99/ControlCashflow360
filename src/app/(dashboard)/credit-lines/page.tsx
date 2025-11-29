@@ -4,8 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { getCreditLines, createCreditLine, updateCreditLine, deleteCreditLine } from '@/services/creditLines';
-import { getCompanies } from '@/services/companies';
+import { creditLinesApi, companiesApi } from '@/lib/api-client';
 import { CreditLine, Company } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
@@ -52,7 +51,7 @@ export default function CreditLinesPage() {
     expiryDate: '',
   });
 
-  // Cargar datos de Firebase
+  // Cargar datos via API
   useEffect(() => {
     if (!user) return;
     
@@ -60,14 +59,17 @@ export default function CreditLinesPage() {
       try {
         setLoading(true);
         const [linesData, companiesData] = await Promise.all([
-          getCreditLines(),
-          getCompanies()
+          creditLinesApi.getAll(),
+          companiesApi.getAll()
         ]);
         setCreditLines(linesData);
         setCompanies(companiesData.map((c: Company) => ({ id: c.id, name: c.name })));
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Error cargando datos:', error);
-        toast.error('Error al cargar las pólizas');
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        if (!errorMessage.includes('index') && !errorMessage.includes('permission')) {
+          toast.error('Error al cargar las pólizas');
+        }
       } finally {
         setLoading(false);
       }
@@ -117,7 +119,7 @@ export default function CreditLinesPage() {
       const currentDrawn = parseFloat(formData.currentDrawn || '0');
       
       if (editingLine) {
-        await updateCreditLine(editingLine, {
+        const updated = await creditLinesApi.update(editingLine, {
           bankName: formData.bankName,
           alias: formData.alias,
           companyId: formData.companyId,
@@ -127,13 +129,11 @@ export default function CreditLinesPage() {
           expiryDate,
         });
         setCreditLines(prev => prev.map(cl => 
-          cl.id === editingLine 
-            ? { ...cl, bankName: formData.bankName, alias: formData.alias, companyId: formData.companyId, creditLimit, currentDrawn, available: creditLimit - currentDrawn, interestRate: parseFloat(formData.interestRate), expiryDate }
-            : cl
+          cl.id === editingLine ? updated : cl
         ));
         toast.success('Póliza actualizada correctamente');
       } else {
-        const newLine = await createCreditLine({
+        const newLine = await creditLinesApi.create({
           companyId: formData.companyId,
           bankName: formData.bankName,
           alias: formData.alias,
@@ -183,7 +183,7 @@ export default function CreditLinesPage() {
     if (!confirm('¿Estás seguro de que deseas eliminar esta póliza?')) return;
     
     try {
-      await deleteCreditLine(lineId);
+      await creditLinesApi.delete(lineId);
       setCreditLines(prev => prev.filter(cl => cl.id !== lineId));
       toast.success('Póliza eliminada correctamente');
     } catch (error) {
@@ -329,8 +329,8 @@ export default function CreditLinesPage() {
 
       {/* Modal de formulario */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-8">
             <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-xl font-bold text-gray-900">
                 {editingLine ? 'Editar Póliza' : 'Nueva Póliza'}

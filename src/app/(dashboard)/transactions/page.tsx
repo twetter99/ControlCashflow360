@@ -4,9 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { getTransactions, createTransaction, updateTransaction, markTransactionAsPaid, cancelTransaction } from '@/services/transactions';
-import { getCompanies } from '@/services/companies';
-import { Transaction, Company, TransactionStatus, TransactionType } from '@/types';
+import { transactionsApi, companiesApi } from '@/lib/api-client';
+import { Transaction, Company, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -18,7 +17,9 @@ import {
   Calendar,
   Search,
   Edit2,
-  Trash2
+  Trash2,
+  Repeat,
+  Target
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -36,6 +37,8 @@ interface TransactionFormData {
   dueDate: string;
   companyId: string;
   notes: string;
+  recurrence: RecurrenceFrequency;
+  certainty: CertaintyLevel;
 }
 
 export default function TransactionsPage() {
@@ -58,9 +61,11 @@ export default function TransactionsPage() {
     dueDate: '',
     companyId: '',
     notes: '',
+    recurrence: 'NONE',
+    certainty: 'HIGH',
   });
 
-  // Cargar datos de Firebase
+  // Cargar datos via API
   useEffect(() => {
     if (!user) return;
     
@@ -68,14 +73,17 @@ export default function TransactionsPage() {
       try {
         setLoading(true);
         const [transactionsData, companiesData] = await Promise.all([
-          getTransactions({}),
-          getCompanies()
+          transactionsApi.getAll(),
+          companiesApi.getAll()
         ]);
         setTransactions(transactionsData);
         setCompanies(companiesData.map((c: Company) => ({ id: c.id, name: c.name })));
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Error cargando datos:', error);
-        toast.error('Error al cargar los movimientos');
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        if (!errorMessage.includes('index') && !errorMessage.includes('permission')) {
+          toast.error('Error al cargar los movimientos');
+        }
       } finally {
         setLoading(false);
       }
@@ -115,11 +123,9 @@ export default function TransactionsPage() {
   const handleMarkAsPaid = async (transactionId: string) => {
     if (!user) return;
     try {
-      await markTransactionAsPaid(transactionId, new Date(), user.uid);
+      const updated = await transactionsApi.markAsPaid(transactionId);
       setTransactions(prev => prev.map(tx => 
-        tx.id === transactionId 
-          ? { ...tx, status: 'PAID' as TransactionStatus, paidDate: new Date() }
-          : tx
+        tx.id === transactionId ? updated : tx
       ));
       toast.success('Movimiento marcado como pagado');
     } catch (error) {
@@ -132,11 +138,9 @@ export default function TransactionsPage() {
     if (!user) return;
     if (!confirm('¿Estás seguro de que deseas cancelar este movimiento?')) return;
     try {
-      await cancelTransaction(transactionId, user.uid);
+      const updated = await transactionsApi.cancel(transactionId);
       setTransactions(prev => prev.map(tx => 
-        tx.id === transactionId 
-          ? { ...tx, status: 'CANCELLED' as TransactionStatus }
-          : tx
+        tx.id === transactionId ? updated : tx
       ));
       toast.success('Movimiento cancelado');
     } catch (error) {
@@ -155,6 +159,8 @@ export default function TransactionsPage() {
       dueDate: tx.dueDate.toISOString().split('T')[0],
       companyId: tx.companyId,
       notes: tx.notes || '',
+      recurrence: tx.recurrence || 'NONE',
+      certainty: tx.certainty || 'HIGH',
     });
     setEditingTransaction(tx.id);
     setShowForm(true);
@@ -166,7 +172,7 @@ export default function TransactionsPage() {
     
     try {
       if (editingTransaction) {
-        await updateTransaction(editingTransaction, {
+        const updated = await transactionsApi.update(editingTransaction, {
           type: formData.type,
           description: formData.description,
           thirdPartyName: formData.thirdPartyName,
@@ -175,15 +181,15 @@ export default function TransactionsPage() {
           dueDate: new Date(formData.dueDate),
           companyId: formData.companyId,
           notes: formData.notes,
+          recurrence: formData.recurrence,
+          certainty: formData.certainty,
         });
         setTransactions(prev => prev.map(tx => 
-          tx.id === editingTransaction 
-            ? { ...tx, ...formData, amount: parseFloat(formData.amount), dueDate: new Date(formData.dueDate) }
-            : tx
+          tx.id === editingTransaction ? updated : tx
         ));
         toast.success('Movimiento actualizado correctamente');
       } else {
-        const newTx = await createTransaction({
+        const newTx = await transactionsApi.create({
           companyId: formData.companyId,
           type: formData.type,
           amount: parseFloat(formData.amount),
@@ -193,6 +199,8 @@ export default function TransactionsPage() {
           description: formData.description,
           thirdPartyName: formData.thirdPartyName,
           notes: formData.notes,
+          recurrence: formData.recurrence,
+          certainty: formData.certainty,
           createdBy: user.uid,
         });
         setTransactions(prev => [...prev, newTx]);
@@ -210,6 +218,8 @@ export default function TransactionsPage() {
         dueDate: '',
         companyId: '',
         notes: '',
+        recurrence: 'NONE',
+        certainty: 'HIGH',
       });
     } catch (error) {
       console.error('Error guardando movimiento:', error);
@@ -431,8 +441,8 @@ export default function TransactionsPage() {
 
       {/* Modal de formulario */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-8">
             <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-xl font-bold text-gray-900">
                 {editingTransaction ? 'Editar Movimiento' : 'Nuevo Movimiento'}
@@ -450,6 +460,8 @@ export default function TransactionsPage() {
                     dueDate: '',
                     companyId: '',
                     notes: '',
+                    recurrence: 'NONE',
+                    certainty: 'HIGH',
                   });
                 }}
                 className="text-gray-400 hover:text-gray-600"
@@ -549,6 +561,44 @@ export default function TransactionsPage() {
                   ))}
                 </select>
               </div>
+              
+              {/* Nuevos campos: Recurrencia y Certeza */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <Repeat size={14} className="inline mr-1" />
+                    Recurrencia
+                  </label>
+                  <select
+                    value={formData.recurrence}
+                    onChange={(e) => setFormData({ ...formData, recurrence: e.target.value as RecurrenceFrequency })}
+                    className="w-full border rounded-lg px-4 py-3"
+                  >
+                    <option value="NONE">No recurrente</option>
+                    <option value="WEEKLY">Semanal</option>
+                    <option value="BIWEEKLY">Quincenal</option>
+                    <option value="MONTHLY">Mensual</option>
+                    <option value="QUARTERLY">Trimestral</option>
+                    <option value="YEARLY">Anual</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <Target size={14} className="inline mr-1" />
+                    Certeza
+                  </label>
+                  <select
+                    value={formData.certainty}
+                    onChange={(e) => setFormData({ ...formData, certainty: e.target.value as CertaintyLevel })}
+                    className="w-full border rounded-lg px-4 py-3"
+                  >
+                    <option value="HIGH">🟢 Alta - Confirmado</option>
+                    <option value="MEDIUM">🟡 Media - Probable</option>
+                    <option value="LOW">🔴 Baja - Posible</option>
+                  </select>
+                </div>
+              </div>
+
               <Input
                 label="Notas"
                 value={formData.notes}
@@ -571,6 +621,8 @@ export default function TransactionsPage() {
                       dueDate: '',
                       companyId: '',
                       notes: '',
+                      recurrence: 'NONE',
+                      certainty: 'HIGH',
                     });
                   }}
                 >

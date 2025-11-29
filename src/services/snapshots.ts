@@ -88,13 +88,13 @@ export async function getRecentSnapshots(count: number = 30): Promise<DailySnaps
 /**
  * Crear snapshot del día actual
  */
-export async function createDailySnapshot(runway: number = 0): Promise<DailySnapshot> {
+export async function createDailySnapshot(userId: string, runway: number = 0): Promise<DailySnapshot> {
   const db = getDb();
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
   
-  const totalLiquidity = await getTotalLiquidity();
-  const totalCreditAvailable = await getTotalCreditAvailable();
-  const breakdown = await getTotalLiquidityByCompany();
+  const totalLiquidity = await getTotalLiquidity(userId);
+  const totalCreditAvailable = await getTotalCreditAvailable(userId);
+  const breakdown = await getTotalLiquidityByCompany(userId);
   
   const snapshotData: Omit<DailySnapshot, 'id'> = {
     date: today,

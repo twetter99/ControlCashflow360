@@ -29,6 +29,7 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
 
 # Vercel
 .vercel
@@ -37,12 +38,37 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# ========================================
+# 🔒 SECURITY - CRITICAL FILES TO IGNORE
+# ========================================
+
+# Firebase Service Account Keys - NEVER COMMIT THESE
+serviceAccountKey.json
+serviceAccountKey*.json
+*-firebase-adminsdk-*.json
+firebase-adminsdk*.json
+*.private-key.json
+service-account*.json
+
 # Firebase
 .firebase/
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
 
-# Seed scripts with credentials (use env vars instead)
-scripts/seed.mjs
-scripts/seed-database.ts
+# Seed/Setup scripts that may contain credentials
+scripts/seed*.ts
+scripts/seed*.mjs
+scripts/setup*.ts
+scripts/*.credentials.ts
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
+*.swo

@@ -4,8 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAccounts, createAccount, updateAccount, deleteAccount } from '@/services/accounts';
-import { getCompanies } from '@/services/companies';
+import { accountsApi, companiesApi } from '@/lib/api-client';
 import { Account, Company } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
@@ -48,7 +47,7 @@ export default function AccountsPage() {
     currentBalance: '0',
   });
 
-  // Cargar datos de Firebase
+  // Cargar datos via API
   useEffect(() => {
     if (!user) return;
     
@@ -56,14 +55,17 @@ export default function AccountsPage() {
       try {
         setLoading(true);
         const [accountsData, companiesData] = await Promise.all([
-          getAccounts(),
-          getCompanies()
+          accountsApi.getAll(),
+          companiesApi.getAll()
         ]);
         setAccounts(accountsData);
         setCompanies(companiesData.map((c: Company) => ({ id: c.id, name: c.name })));
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Error cargando datos:', error);
-        toast.error('Error al cargar las cuentas');
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        if (!errorMessage.includes('index') && !errorMessage.includes('permission')) {
+          toast.error('Error al cargar las cuentas');
+        }
       } finally {
         setLoading(false);
       }
@@ -92,7 +94,7 @@ export default function AccountsPage() {
     try {
       if (editingAccount) {
         // Actualizar cuenta existente
-        await updateAccount(editingAccount, {
+        const updated = await accountsApi.update(editingAccount, {
           bankName: formData.bankName,
           alias: formData.alias,
           accountNumber: formData.accountNumber,
@@ -100,21 +102,18 @@ export default function AccountsPage() {
           currentBalance: parseFloat(formData.currentBalance),
         });
         setAccounts(prev => prev.map(acc => 
-          acc.id === editingAccount 
-            ? { ...acc, bankName: formData.bankName, alias: formData.alias, accountNumber: formData.accountNumber, companyId: formData.companyId, currentBalance: parseFloat(formData.currentBalance) }
-            : acc
+          acc.id === editingAccount ? updated : acc
         ));
         toast.success('Cuenta actualizada correctamente');
       } else {
         // Crear nueva cuenta
-        const newAccount = await createAccount({
+        const newAccount = await accountsApi.create({
           companyId: formData.companyId,
           bankName: formData.bankName,
           alias: formData.alias,
           accountNumber: formData.accountNumber,
           currentBalance: parseFloat(formData.currentBalance),
           lastUpdateAmount: 0,
-          lastUpdateDate: new Date(),
           lastUpdatedBy: user.uid,
           status: 'ACTIVE',
         });
@@ -153,7 +152,7 @@ export default function AccountsPage() {
     if (!confirm('¿Estás seguro de que deseas eliminar esta cuenta?')) return;
     
     try {
-      await deleteAccount(accountId);
+      await accountsApi.delete(accountId);
       setAccounts(prev => prev.filter(acc => acc.id !== accountId));
       toast.success('Cuenta eliminada correctamente');
     } catch (error) {
@@ -303,8 +302,8 @@ export default function AccountsPage() {
 
       {/* Modal de formulario */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-8">
             <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-xl font-bold text-gray-900">
                 {editingAccount ? 'Editar Cuenta' : 'Nueva Cuenta'}

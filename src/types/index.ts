@@ -15,7 +15,9 @@ export type TransactionType = 'INCOME' | 'EXPENSE';
 
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED';
 
-export type RecurrenceFrequency = 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type RecurrenceFrequency = 'NONE' | 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+
+export type CertaintyLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export type ThirdPartyType = 'CUSTOMER' | 'SUPPLIER';
 
@@ -36,7 +38,10 @@ export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export interface Company {
   id: string;
+  userId: string;
+  code: string; // Código amigable: EM01, EM02, etc.
   name: string;
+  cif: string;
   color: string;
   status: EntityStatus;
   createdAt?: Date;
@@ -49,6 +54,7 @@ export interface Company {
 
 export interface Account {
   id: string;
+  userId: string;
   companyId: string;
   bankName: string;
   alias: string;
@@ -68,6 +74,7 @@ export interface Account {
 
 export interface CreditLine {
   id: string;
+  userId: string;
   companyId: string;
   bankName: string;
   alias?: string;
@@ -90,6 +97,7 @@ export interface CreditLine {
 
 export interface Transaction {
   id: string;
+  userId: string;
   companyId: string;
   accountId?: string;
   type: TransactionType;
@@ -102,6 +110,9 @@ export interface Transaction {
   thirdPartyId?: string;
   thirdPartyName?: string;
   notes?: string;
+  // Nuevos campos para previsiones
+  recurrence: RecurrenceFrequency;
+  certainty: CertaintyLevel;
   recurrenceId?: string | null;
   createdBy: string;
   lastUpdatedBy?: string;
@@ -306,17 +317,17 @@ export interface DashboardSummary {
 // Tipos para formularios y UI
 // ============================================
 
-export type CreateAccountInput = Omit<Account, 'id' | 'createdAt' | 'updatedAt'>;
-export type UpdateAccountInput = Partial<Omit<Account, 'id' | 'createdAt'>>;
+export type CreateAccountInput = Omit<Account, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'lastUpdateDate'>;
+export type UpdateAccountInput = Partial<Omit<Account, 'id' | 'userId' | 'createdAt'>>;
 
-export type CreateTransactionInput = Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>;
-export type UpdateTransactionInput = Partial<Omit<Transaction, 'id' | 'createdAt'>>;
+export type CreateTransactionInput = Omit<Transaction, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type UpdateTransactionInput = Partial<Omit<Transaction, 'id' | 'userId' | 'createdAt'>>;
 
-export type CreateCompanyInput = Omit<Company, 'id' | 'createdAt' | 'updatedAt'>;
-export type UpdateCompanyInput = Partial<Omit<Company, 'id' | 'createdAt'>>;
+export type CreateCompanyInput = Omit<Company, 'id' | 'userId' | 'code' | 'createdAt' | 'updatedAt'>;
+export type UpdateCompanyInput = Partial<Omit<Company, 'id' | 'userId' | 'code' | 'createdAt'>>;
 
-export type CreateCreditLineInput = Omit<CreditLine, 'id' | 'createdAt' | 'updatedAt'>;
-export type UpdateCreditLineInput = Partial<Omit<CreditLine, 'id' | 'createdAt'>>;
+export type CreateCreditLineInput = Omit<CreditLine, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
+export type UpdateCreditLineInput = Partial<Omit<CreditLine, 'id' | 'userId' | 'createdAt'>>;
 
 // ============================================
 // Tipos para balance update (Morning Check)

@@ -1,4 +1,5 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
     
@@ -11,258 +12,169 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    // Obtener datos del usuario desde Firestore
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    // Verificar si el usuario es propietario del documento
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
     
-    // Verificar rol del usuario
-    function hasRole(role) {
-      return isAuthenticated() && getUserData().role == role;
+    // Verificar si el documento pertenece al usuario autenticado
+    function belongsToUser() {
+      return isAuthenticated() && resource.data.userId == request.auth.uid;
     }
     
-    // Verificar si es admin
-    function isAdmin() {
-      return hasRole('ADMIN');
-    }
-    
-    // Verificar si es tesorero
-    function isTreasuryManager() {
-      return hasRole('ADMIN') || hasRole('TREASURY_MANAGER');
-    }
-    
-    // Verificar si es gestor de empresa
-    function isCompanyManager() {
-      return hasRole('ADMIN') || hasRole('TREASURY_MANAGER') || hasRole('COMPANY_MANAGER');
-    }
-    
-    // Verificar si tiene acceso a una empresa específica
-    function hasCompanyAccess(companyId) {
-      let userData = getUserData();
-      return isAdmin() || 
-             (userData.companyIds != null && companyId in userData.companyIds);
+    // Verificar si el nuevo documento tendrá el userId del usuario autenticado
+    function willBelongToUser() {
+      return isAuthenticated() && request.resource.data.userId == request.auth.uid;
     }
     
     // ============================
     // COLECCIÓN: users
     // ============================
     match /users/{userId} {
-      // Usuarios pueden leer su propio perfil
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Usuarios solo pueden leer/escribir su propio perfil
+      allow read: if isOwner(userId);
       
-      // Solo admins pueden crear usuarios
-      allow create: if isAdmin();
+      // Crear perfil: solo si es su propio documento
+      allow create: if isOwner(userId);
       
-      // Usuarios pueden actualizar su propio perfil (excepto rol)
-      // Admins pueden actualizar cualquier perfil
-      allow update: if isAuthenticated() && (
-        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'companyIds'])) ||
-        isAdmin()
-      );
+      // Actualizar perfil: solo campos permitidos (no puede cambiar su propio rol)
+      allow update: if isOwner(userId) && 
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
       
-      // Solo admins pueden eliminar usuarios
-      allow delete: if isAdmin();
+      // No se permite eliminar usuarios desde cliente
+      allow delete: if false;
     }
     
     // ============================
     // COLECCIÓN: companies
     // ============================
     match /companies/{companyId} {
-      // Lectura: usuarios con acceso a la empresa o admins
-      allow read: if isAuthenticated() && (hasCompanyAccess(companyId) || isAdmin());
+      // Leer: solo propietario
+      allow read: if belongsToUser();
       
-      // Crear empresas: solo admins
-      allow create: if isAdmin();
+      // Crear: debe incluir userId del usuario autenticado
+      allow create: if willBelongToUser();
       
-      // Actualizar empresas: tesoreros o admins
-      allow update: if isTreasuryManager();
+      // Actualizar: solo propietario, no puede cambiar userId
+      allow update: if belongsToUser() && 
+        request.resource.data.userId == resource.data.userId;
       
-      // Eliminar empresas: solo admins
-      allow delete: if isAdmin();
+      // Eliminar: solo propietario
+      allow delete: if belongsToUser();
     }
     
     // ============================
     // COLECCIÓN: accounts
     // ============================
     match /accounts/{accountId} {
-      // Lectura: usuarios con acceso a la empresa de la cuenta
-      allow read: if isAuthenticated() && 
-                    hasCompanyAccess(resource.data.companyId);
+      // Leer: solo propietario
+      allow read: if belongsToUser();
       
-      // Crear cuentas: gestores de empresa o superior
-      allow create: if isCompanyManager() && 
-                      hasCompanyAccess(request.resource.data.companyId);
+      // Crear: debe incluir userId del usuario autenticado
+      allow create: if willBelongToUser();
       
-      // Actualizar cuentas: gestores de empresa o superior con acceso
-      allow update: if isCompanyManager() && 
-                      hasCompanyAccess(resource.data.companyId);
+      // Actualizar: solo propietario, no puede cambiar userId
+      allow update: if belongsToUser() && 
+        request.resource.data.userId == resource.data.userId;
       
-      // Eliminar cuentas: tesoreros o admins
-      allow delete: if isTreasuryManager() && 
-                      hasCompanyAccess(resource.data.companyId);
+      // Eliminar: solo propietario
+      allow delete: if belongsToUser();
     }
     
     // ============================
-    // COLECCIÓN: creditLines
+    // COLECCIÓN: credit_lines
     // ============================
-    match /creditLines/{creditLineId} {
-      // Lectura: usuarios con acceso a la empresa
-      allow read: if isAuthenticated() && 
-                    hasCompanyAccess(resource.data.companyId);
+    match /credit_lines/{creditLineId} {
+      // Leer: solo propietario
+      allow read: if belongsToUser();
       
-      // Crear pólizas: tesoreros o admins
-      allow create: if isTreasuryManager() && 
-                      hasCompanyAccess(request.resource.data.companyId);
+      // Crear: debe incluir userId del usuario autenticado
+      allow create: if willBelongToUser();
       
-      // Actualizar pólizas: tesoreros o admins con acceso
-      allow update: if isTreasuryManager() && 
-                      hasCompanyAccess(resource.data.companyId);
+      // Actualizar: solo propietario, no puede cambiar userId
+      allow update: if belongsToUser() && 
+        request.resource.data.userId == resource.data.userId;
       
-      // Eliminar pólizas: solo admins
-      allow delete: if isAdmin();
+      // Eliminar: solo propietario
+      allow delete: if belongsToUser();
     }
     
     // ============================
     // COLECCIÓN: transactions
     // ============================
     match /transactions/{transactionId} {
-      // Lectura: usuarios con acceso a la empresa del movimiento
-      allow read: if isAuthenticated() && 
-                    hasCompanyAccess(resource.data.companyId);
+      // Leer: solo propietario
+      allow read: if belongsToUser();
       
-      // Crear movimientos: gestores de empresa o superior
-      allow create: if isCompanyManager() && 
-                      hasCompanyAccess(request.resource.data.companyId);
+      // Crear: debe incluir userId del usuario autenticado
+      allow create: if willBelongToUser();
       
-      // Actualizar movimientos: gestores de empresa o superior
-      // No permite cambiar companyId
-      allow update: if isCompanyManager() && 
-                      hasCompanyAccess(resource.data.companyId) &&
-                      request.resource.data.companyId == resource.data.companyId;
+      // Actualizar: solo propietario, no puede cambiar userId ni companyId
+      allow update: if belongsToUser() && 
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.companyId == resource.data.companyId;
       
-      // Eliminar movimientos: tesoreros o admins
-      allow delete: if isTreasuryManager() && 
-                      hasCompanyAccess(resource.data.companyId);
-    }
-    
-    // ============================
-    // COLECCIÓN: recurrences
-    // ============================
-    match /recurrences/{recurrenceId} {
-      // Lectura: usuarios con acceso a la empresa
-      allow read: if isAuthenticated() && 
-                    hasCompanyAccess(resource.data.companyId);
-      
-      // Crear recurrencias: gestores de empresa o superior
-      allow create: if isCompanyManager() && 
-                      hasCompanyAccess(request.resource.data.companyId);
-      
-      // Actualizar recurrencias: gestores de empresa o superior
-      allow update: if isCompanyManager() && 
-                      hasCompanyAccess(resource.data.companyId);
-      
-      // Eliminar recurrencias: tesoreros o admins
-      allow delete: if isTreasuryManager();
-    }
-    
-    // ============================
-    // COLECCIÓN: thirdParties
-    // ============================
-    match /thirdParties/{thirdPartyId} {
-      // Lectura: usuarios con acceso a la empresa
-      allow read: if isAuthenticated() && 
-                    hasCompanyAccess(resource.data.companyId);
-      
-      // CRUD: gestores de empresa o superior
-      allow create, update: if isCompanyManager() && 
-                              hasCompanyAccess(request.resource.data.companyId);
-      
-      allow delete: if isCompanyManager() && 
-                      hasCompanyAccess(resource.data.companyId);
-    }
-    
-    // ============================
-    // COLECCIÓN: dailySnapshots
-    // ============================
-    match /dailySnapshots/{snapshotId} {
-      // Lectura: usuarios autenticados (pueden ver snapshots de sus empresas o globales)
-      allow read: if isAuthenticated() && 
-                    (resource.data.companyId == null || 
-                     hasCompanyAccess(resource.data.companyId));
-      
-      // Solo Cloud Functions pueden crear snapshots
-      allow create: if false;
-      
-      // No se pueden modificar ni eliminar snapshots
-      allow update, delete: if false;
-    }
-    
-    // ============================
-    // COLECCIÓN: scenarios
-    // ============================
-    match /scenarios/{scenarioId} {
-      // Lectura: el creador o tesoreros/admins
-      allow read: if isAuthenticated() && 
-                    (resource.data.createdBy == request.auth.uid || 
-                     isTreasuryManager());
-      
-      // Crear escenarios: gestores de empresa o superior
-      allow create: if isCompanyManager() && 
-                      request.resource.data.createdBy == request.auth.uid;
-      
-      // Actualizar/eliminar: solo el creador o admins
-      allow update, delete: if isAuthenticated() && 
-                              (resource.data.createdBy == request.auth.uid || isAdmin());
+      // Eliminar: solo propietario
+      allow delete: if belongsToUser();
     }
     
     // ============================
     // COLECCIÓN: alertConfigs
     // ============================
     match /alertConfigs/{configId} {
-      // Lectura: todos los usuarios autenticados (filtrado en frontend)
+      // Leer: solo propietario
+      allow read: if belongsToUser();
+      
+      // Crear: debe incluir userId del usuario autenticado
+      allow create: if willBelongToUser();
+      
+      // Actualizar: solo propietario
+      allow update: if belongsToUser() && 
+        request.resource.data.userId == resource.data.userId;
+      
+      // Eliminar: solo propietario
+      allow delete: if belongsToUser();
+    }
+    
+    // ============================
+    // COLECCIÓN: daily_snapshots
+    // ============================
+    match /daily_snapshots/{snapshotId} {
+      // Leer: usuarios autenticados (snapshots son de solo lectura)
       allow read: if isAuthenticated();
       
-      // Crear/actualizar configuraciones: tesoreros o admins
-      allow create, update: if isTreasuryManager();
-      
-      // Eliminar: tesoreros o admins
-      allow delete: if isTreasuryManager();
+      // Solo Cloud Functions o servidor pueden crear/modificar
+      allow create, update, delete: if false;
     }
     
     // ============================
-    // COLECCIÓN: alerts (notificaciones generadas)
-    // ============================
-    match /alerts/{alertId} {
-      // Lectura: usuarios con acceso a la empresa de la alerta o alertas globales
-      allow read: if isAuthenticated() && 
-                    (resource.data.companyId == null || 
-                     hasCompanyAccess(resource.data.companyId));
-      
-      // Solo Cloud Functions pueden crear alertas
-      allow create: if false;
-      
-      // Usuarios pueden marcar como leídas sus alertas
-      allow update: if isAuthenticated() && 
-                      (resource.data.companyId == null || 
-                       hasCompanyAccess(resource.data.companyId)) &&
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-      
-      // Solo admins pueden eliminar alertas
-      allow delete: if isAdmin();
-    }
-    
-    // ============================
-    // COLECCIÓN: auditLogs (opcional para auditoría)
+    // COLECCIÓN: auditLogs (legacy)
     // ============================
     match /auditLogs/{logId} {
-      // Lectura: solo admins
-      allow read: if isAdmin();
+      // Solo lectura para el propietario
+      allow read: if belongsToUser();
       
-      // Solo el backend puede crear logs
-      allow create: if false;
+      // Solo servidor puede crear logs
+      allow create, update, delete: if false;
+    }
+    
+    // ============================
+    // COLECCIÓN: audit_logs (nueva)
+    // ============================
+    match /audit_logs/{logId} {
+      // Solo lectura para el propietario (solo sus propios logs)
+      allow read: if belongsToUser();
       
-      // No se pueden modificar ni eliminar logs
-      allow update, delete: if false;
+      // Solo servidor (Firebase Admin SDK) puede crear/modificar logs
+      // Los clientes nunca deben poder manipular logs de auditoría
+      allow create, update, delete: if false;
+    }
+
+    // ============================
+    // REGLA POR DEFECTO: Denegar todo lo demás
+    // ============================
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

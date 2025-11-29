@@ -1,0 +1,192 @@
+import { NextRequest } from 'next/server';
+import { getAdminDb } from '@/lib/firebase/admin';
+import {
+  authenticateRequest,
+  successResponse,
+  errorResponse,
+  withErrorHandling,
+  parseAndValidate,
+} from '@/lib/api-utils';
+import { Transaction } from '@/types';
+import { Timestamp } from 'firebase-admin/firestore';
+import { CreateTransactionSchema } from '@/lib/validations/schemas';
+import { logCreate } from '@/lib/audit-logger';
+
+const COLLECTION = 'transactions';
+
+/**
+ * Mapea datos de Firestore a Transaction
+ */
+function mapToTransaction(id: string, data: FirebaseFirestore.DocumentData): Transaction {
+  return {
+    id,
+    userId: data.userId,
+    companyId: data.companyId,
+    accountId: data.accountId || undefined,
+    type: data.type,
+    amount: data.amount || 0,
+    status: data.status || 'PENDING',
+    dueDate: data.dueDate?.toDate?.() || new Date(),
+    paidDate: data.paidDate?.toDate?.() || null,
+    category: data.category || '',
+    description: data.description || '',
+    thirdPartyId: data.thirdPartyId || undefined,
+    thirdPartyName: data.thirdPartyName || '',
+    notes: data.notes || '',
+    recurrence: data.recurrence || 'NONE',
+    certainty: data.certainty || 'HIGH',
+    recurrenceId: data.recurrenceId || null,
+    createdBy: data.createdBy || '',
+    lastUpdatedBy: data.lastUpdatedBy || '',
+    createdAt: data.createdAt?.toDate?.() || new Date(),
+    updatedAt: data.updatedAt?.toDate?.() || new Date(),
+  };
+}
+
+/**
+ * GET /api/transactions - Obtener todas las transacciones del usuario
+ */
+export async function GET(request: NextRequest) {
+  return withErrorHandling(async () => {
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
+
+    const db = getAdminDb();
+    
+    // Filtros opcionales
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('accountId');
+    const companyId = searchParams.get('companyId');
+    const type = searchParams.get('type');
+    const status = searchParams.get('status');
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+
+    let query = db.collection(COLLECTION).where('userId', '==', userId);
+
+    if (accountId) {
+      query = query.where('accountId', '==', accountId);
+    }
+    if (companyId) {
+      query = query.where('companyId', '==', companyId);
+    }
+    if (type) {
+      query = query.where('type', '==', type);
+    }
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+
+    const snapshot = await query.orderBy('dueDate', 'desc').get();
+
+    let transactions: Transaction[] = snapshot.docs.map((doc) => 
+      mapToTransaction(doc.id, doc.data())
+    );
+
+    // Filtrar por fecha si se proporcionan (filtrado en cliente por simplicidad)
+    if (startDate) {
+      const start = new Date(startDate);
+      transactions = transactions.filter(t => new Date(t.dueDate) >= start);
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      transactions = transactions.filter(t => new Date(t.dueDate) <= end);
+    }
+
+    return successResponse(transactions);
+  });
+}
+
+/**
+ * POST /api/transactions - Crear nueva transacción
+ */
+export async function POST(request: NextRequest) {
+  return withErrorHandling(async () => {
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
+
+    // Validar con Zod
+    const validation = await parseAndValidate(request, CreateTransactionSchema);
+    if (!validation.success) return validation.error;
+    const body = validation.data;
+
+    const db = getAdminDb();
+
+    // Verificar que la empresa pertenece al usuario
+    const companyDoc = await db.collection('companies').doc(body.companyId).get();
+    if (!companyDoc.exists || companyDoc.data()?.userId !== userId) {
+      return errorResponse('Empresa no válida', 400, 'INVALID_COMPANY');
+    }
+
+    // Verificar cuenta si se proporciona
+    if (body.accountId) {
+      const accountDoc = await db.collection('accounts').doc(body.accountId).get();
+      if (!accountDoc.exists || accountDoc.data()?.userId !== userId) {
+        return errorResponse('Cuenta no válida', 400, 'INVALID_ACCOUNT');
+      }
+    }
+    
+    const now = Timestamp.now();
+    const dueDate = body.dueDate instanceof Date ? body.dueDate : new Date(body.dueDate);
+    const paidDate = body.paidDate ? (body.paidDate instanceof Date ? body.paidDate : new Date(body.paidDate)) : null;
+    
+    const transactionData = {
+      companyId: body.companyId,
+      accountId: body.accountId || null,
+      type: body.type,
+      amount: body.amount,
+      status: body.status,
+      dueDate: Timestamp.fromDate(dueDate),
+      paidDate: paidDate ? Timestamp.fromDate(paidDate) : null,
+      category: body.category,
+      description: body.description,
+      thirdPartyId: body.thirdPartyId || null,
+      thirdPartyName: body.thirdPartyName,
+      notes: body.notes,
+      recurrence: body.recurrence,
+      certainty: body.certainty,
+      recurrenceId: body.recurrenceId || null,
+      createdBy: userId,
+      lastUpdatedBy: userId,
+      userId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const docRef = await db.collection(COLLECTION).add(transactionData);
+
+    // Si está pagada y tiene cuenta, actualizar balance
+    if (transactionData.status === 'PAID' && transactionData.accountId) {
+      const balanceChange = body.type === 'INCOME' ? body.amount : -body.amount;
+      const accountDoc = await db.collection('accounts').doc(transactionData.accountId).get();
+      const accountData = accountDoc.data()!;
+      await db.collection('accounts').doc(transactionData.accountId).update({
+        currentBalance: (accountData.currentBalance || 0) + balanceChange,
+        lastUpdateAmount: balanceChange,
+        lastUpdateDate: now,
+        lastUpdatedBy: userId,
+        updatedAt: now,
+      });
+    }
+
+    // Registrar en auditoría
+    await logCreate(userId, 'transaction', docRef.id, {
+      type: body.type,
+      amount: body.amount,
+      status: body.status,
+      description: body.description,
+      category: body.category,
+      thirdPartyName: body.thirdPartyName,
+    }, { entityName: body.description || `${body.type} - ${body.amount}` });
+
+    return successResponse(mapToTransaction(docRef.id, {
+      ...transactionData,
+      dueDate: { toDate: () => dueDate },
+      paidDate: paidDate ? { toDate: () => paidDate } : null,
+      createdAt: { toDate: () => now.toDate() },
+      updatedAt: { toDate: () => now.toDate() },
+    }), 201);
+  });
+}

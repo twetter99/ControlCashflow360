@@ -7,7 +7,6 @@ import {
   updateDoc,
   query,
   where,
-  orderBy,
   Timestamp,
   DocumentData,
   QueryConstraint,
@@ -24,6 +23,7 @@ const COLLECTION_NAME = 'transactions';
 function documentToTransaction(id: string, data: DocumentData): Transaction {
   return {
     id,
+    userId: data.userId || '',
     companyId: data.companyId,
     accountId: data.accountId,
     type: data.type,
@@ -36,6 +36,8 @@ function documentToTransaction(id: string, data: DocumentData): Transaction {
     thirdPartyId: data.thirdPartyId,
     thirdPartyName: data.thirdPartyName,
     notes: data.notes,
+    recurrence: data.recurrence || 'NONE',
+    certainty: data.certainty || 'HIGH',
     recurrenceId: data.recurrenceId,
     createdBy: data.createdBy,
     lastUpdatedBy: data.lastUpdatedBy,
@@ -48,6 +50,7 @@ function documentToTransaction(id: string, data: DocumentData): Transaction {
  * Obtener transacciones con filtros
  */
 export async function getTransactions(options: {
+  userId: string;
   companyId?: string;
   status?: TransactionStatus;
   type?: 'INCOME' | 'EXPENSE';
@@ -56,7 +59,9 @@ export async function getTransactions(options: {
   limitCount?: number;
 }): Promise<Transaction[]> {
   const db = getDb();
-  const constraints: QueryConstraint[] = [];
+  const constraints: QueryConstraint[] = [
+    where('userId', '==', options.userId)
+  ];
   
   if (options.companyId) {
     constraints.push(where('companyId', '==', options.companyId));
@@ -67,14 +72,6 @@ export async function getTransactions(options: {
   if (options.type) {
     constraints.push(where('type', '==', options.type));
   }
-  if (options.fromDate) {
-    constraints.push(where('dueDate', '>=', Timestamp.fromDate(options.fromDate)));
-  }
-  if (options.toDate) {
-    constraints.push(where('dueDate', '<=', Timestamp.fromDate(options.toDate)));
-  }
-  
-  constraints.push(orderBy('dueDate', 'asc'));
   
   if (options.limitCount) {
     constraints.push(limit(options.limitCount));
@@ -83,25 +80,38 @@ export async function getTransactions(options: {
   const q = query(collection(db, COLLECTION_NAME), ...constraints);
   const snapshot = await getDocs(q);
   
-  return snapshot.docs.map((docSnap) => documentToTransaction(docSnap.id, docSnap.data()));
+  let transactions = snapshot.docs.map((docSnap) => documentToTransaction(docSnap.id, docSnap.data()));
+  
+  // Filtrar por fecha en cliente si es necesario
+  if (options.fromDate) {
+    transactions = transactions.filter(tx => tx.dueDate >= options.fromDate!);
+  }
+  if (options.toDate) {
+    transactions = transactions.filter(tx => tx.dueDate <= options.toDate!);
+  }
+  
+  // Ordenar por fecha en cliente
+  return transactions.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 }
 
 /**
  * Obtener transacciones pendientes
  */
-export async function getPendingTransactions(companyId?: string): Promise<Transaction[]> {
-  return getTransactions({ companyId, status: 'PENDING' });
+export async function getPendingTransactions(userId: string, companyId?: string): Promise<Transaction[]> {
+  return getTransactions({ userId, companyId, status: 'PENDING' });
 }
 
 /**
  * Obtener transacciones pendientes por rango de fechas
  */
 export async function getPendingTransactionsByDateRange(
+  userId: string,
   fromDate: Date,
   toDate: Date,
   companyId?: string
 ): Promise<Transaction[]> {
   return getTransactions({
+    userId,
     companyId,
     status: 'PENDING',
     fromDate,
@@ -127,10 +137,11 @@ export async function getTransactionById(id: string): Promise<Transaction | null
 /**
  * Crear una nueva transacción
  */
-export async function createTransaction(data: CreateTransactionInput): Promise<Transaction> {
+export async function createTransaction(userId: string, data: CreateTransactionInput): Promise<Transaction> {
   const db = getDb();
   const docData = {
     ...data,
+    userId,
     dueDate: Timestamp.fromDate(data.dueDate),
     paidDate: data.paidDate ? Timestamp.fromDate(data.paidDate) : null,
     createdAt: Timestamp.now(),
@@ -142,6 +153,7 @@ export async function createTransaction(data: CreateTransactionInput): Promise<T
   return {
     ...data,
     id: docRef.id,
+    userId,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -190,12 +202,12 @@ export async function markTransactionAsPaid(
 /**
  * Cancelar transacción
  */
-export async function cancelTransaction(id: string, userId: string): Promise<void> {
+export async function cancelTransaction(id: string, modifiedByUserId: string): Promise<void> {
   const db = getDb();
   const docRef = doc(db, COLLECTION_NAME, id);
   await updateDoc(docRef, {
     status: 'CANCELLED',
-    lastUpdatedBy: userId,
+    lastUpdatedBy: modifiedByUserId,
     updatedAt: Timestamp.now(),
   });
 }
@@ -204,11 +216,12 @@ export async function cancelTransaction(id: string, userId: string): Promise<voi
  * Buscar transacciones por importe (para conciliación express)
  */
 export async function findTransactionsByAmount(
+  userId: string,
   amount: number,
   tolerance: number = 0.01,
   companyId?: string
 ): Promise<Transaction[]> {
-  const pending = await getPendingTransactions(companyId);
+  const pending = await getPendingTransactions(userId, companyId);
   const minAmount = amount - tolerance;
   const maxAmount = amount + tolerance;
   
@@ -220,8 +233,9 @@ export async function findTransactionsByAmount(
 /**
  * Obtener total de ingresos pendientes
  */
-export async function getTotalPendingIncomes(companyId?: string, toDate?: Date): Promise<number> {
+export async function getTotalPendingIncomes(userId: string, companyId?: string, toDate?: Date): Promise<number> {
   const transactions = await getTransactions({
+    userId,
     companyId,
     status: 'PENDING',
     type: 'INCOME',
@@ -233,8 +247,9 @@ export async function getTotalPendingIncomes(companyId?: string, toDate?: Date):
 /**
  * Obtener total de gastos pendientes
  */
-export async function getTotalPendingExpenses(companyId?: string, toDate?: Date): Promise<number> {
+export async function getTotalPendingExpenses(userId: string, companyId?: string, toDate?: Date): Promise<number> {
   const transactions = await getTransactions({
+    userId,
     companyId,
     status: 'PENDING',
     type: 'EXPENSE',
@@ -246,10 +261,10 @@ export async function getTotalPendingExpenses(companyId?: string, toDate?: Date)
 /**
  * Obtener transacciones atrasadas (vencidas pero no pagadas)
  */
-export async function getOverdueTransactions(companyId?: string): Promise<Transaction[]> {
+export async function getOverdueTransactions(userId: string, companyId?: string): Promise<Transaction[]> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  const pending = await getPendingTransactions(companyId);
+  const pending = await getPendingTransactions(userId, companyId);
   return pending.filter((tx) => tx.dueDate < today);
 }

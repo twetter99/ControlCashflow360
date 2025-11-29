@@ -1,0 +1,302 @@
+import { z } from 'zod';
+import { sanitizeText } from '../sanitize';
+
+// ============================================
+// Helper para sanitización en Zod
+// ============================================
+
+/**
+ * Crea un schema de string sanitizado contra XSS
+ */
+const sanitizedString = (maxLength?: number) => 
+  z.string()
+    .transform(val => sanitizeText(val, maxLength))
+    .pipe(z.string());
+
+// ============================================
+// Enums y valores permitidos
+// ============================================
+
+export const EntityStatusSchema = z.enum(['ACTIVE', 'INACTIVE']);
+export const TransactionTypeSchema = z.enum(['INCOME', 'EXPENSE']);
+export const TransactionStatusSchema = z.enum(['PENDING', 'PAID', 'CANCELLED']);
+export const RecurrenceFrequencySchema = z.enum(['NONE', 'DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY']);
+export const CertaintyLevelSchema = z.enum(['HIGH', 'MEDIUM', 'LOW']);
+
+// ============================================
+// COMPANY SCHEMAS
+// ============================================
+
+export const CreateCompanySchema = z.object({
+  name: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre es requerido').max(100, 'El nombre no puede exceder 100 caracteres')),
+  cif: sanitizedString(20)
+    .pipe(z.string().max(20, 'El CIF no puede exceder 20 caracteres'))
+    .optional()
+    .default(''),
+  color: z.string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, 'El color debe ser un código hexadecimal válido (#RRGGBB)')
+    .default('#3B82F6'),
+  status: EntityStatusSchema.default('ACTIVE'),
+});
+
+export const UpdateCompanySchema = z.object({
+  name: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre es requerido').max(100, 'El nombre no puede exceder 100 caracteres'))
+    .optional(),
+  cif: sanitizedString(20)
+    .pipe(z.string().max(20, 'El CIF no puede exceder 20 caracteres'))
+    .optional(),
+  color: z.string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, 'El color debe ser un código hexadecimal válido (#RRGGBB)')
+    .optional(),
+  status: EntityStatusSchema.optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+// ============================================
+// ACCOUNT SCHEMAS
+// ============================================
+
+export const CreateAccountSchema = z.object({
+  companyId: z.string()
+    .min(1, 'El ID de empresa es requerido'),
+  bankName: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre del banco es requerido').max(100, 'El nombre del banco no puede exceder 100 caracteres')),
+  alias: sanitizedString(50)
+    .pipe(z.string().max(50, 'El alias no puede exceder 50 caracteres'))
+    .optional()
+    .default(''),
+  accountNumber: sanitizedString(50)
+    .pipe(z.string().min(1, 'El número de cuenta es requerido').max(50, 'El número de cuenta no puede exceder 50 caracteres')),
+  currentBalance: z.number()
+    .finite('El balance debe ser un número válido'),
+  lastUpdateAmount: z.number()
+    .finite('El monto debe ser un número válido')
+    .optional()
+    .default(0),
+  status: EntityStatusSchema.default('ACTIVE'),
+});
+
+export const UpdateAccountSchema = z.object({
+  companyId: z.string().min(1).optional(),
+  bankName: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre del banco es requerido').max(100))
+    .optional(),
+  alias: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  accountNumber: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  currentBalance: z.number().finite().optional(),
+  lastUpdateAmount: z.number().finite().optional(),
+  status: EntityStatusSchema.optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+// Schema para actualización de balance
+export const BalanceUpdateSchema = z.object({
+  amount: z.number()
+    .finite('El monto debe ser un número válido'),
+  description: sanitizedString(200)
+    .pipe(z.string().max(200, 'La descripción no puede exceder 200 caracteres'))
+    .optional(),
+});
+
+// ============================================
+// TRANSACTION SCHEMAS
+// ============================================
+
+export const CreateTransactionSchema = z.object({
+  companyId: z.string()
+    .min(1, 'El ID de empresa es requerido'),
+  accountId: z.string()
+    .min(1)
+    .optional(),
+  type: TransactionTypeSchema,
+  amount: z.number()
+    .positive('El monto debe ser mayor a 0')
+    .finite('El monto debe ser un número válido'),
+  status: TransactionStatusSchema.default('PENDING'),
+  dueDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).refine(date => !isNaN(date.getTime()), {
+    message: 'La fecha de vencimiento no es válida',
+  }),
+  paidDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+    z.null(),
+  ]).optional().nullable(),
+  category: sanitizedString(50)
+    .pipe(z.string().max(50, 'La categoría no puede exceder 50 caracteres'))
+    .optional()
+    .default(''),
+  description: sanitizedString(500)
+    .pipe(z.string().max(500, 'La descripción no puede exceder 500 caracteres'))
+    .optional()
+    .default(''),
+  thirdPartyId: z.string().optional(),
+  thirdPartyName: sanitizedString(100)
+    .pipe(z.string().max(100, 'El nombre del tercero no puede exceder 100 caracteres'))
+    .optional()
+    .default(''),
+  notes: sanitizedString(1000)
+    .pipe(z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres'))
+    .optional()
+    .default(''),
+  recurrence: RecurrenceFrequencySchema.default('NONE'),
+  certainty: CertaintyLevelSchema.default('HIGH'),
+  recurrenceId: z.string().nullable().optional(),
+  createdBy: z.string().optional(),
+});
+
+export const UpdateTransactionSchema = z.object({
+  companyId: z.string().min(1).optional(),
+  accountId: z.string().min(1).optional().nullable(),
+  type: TransactionTypeSchema.optional(),
+  amount: z.number()
+    .positive('El monto debe ser mayor a 0')
+    .finite()
+    .optional(),
+  status: TransactionStatusSchema.optional(),
+  dueDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).optional(),
+  paidDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+    z.null(),
+  ]).optional().nullable(),
+  category: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  description: sanitizedString(500).pipe(z.string().max(500)).optional(),
+  thirdPartyId: z.string().optional().nullable(),
+  thirdPartyName: sanitizedString(100).pipe(z.string().max(100)).optional(),
+  notes: sanitizedString(1000).pipe(z.string().max(1000)).optional(),
+  recurrence: RecurrenceFrequencySchema.optional(),
+  certainty: CertaintyLevelSchema.optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+// Schema para acciones especiales de transacción
+export const TransactionActionSchema = z.object({
+  action: z.enum(['markAsPaid', 'cancel']),
+  paidDate: z.string()
+    .transform(val => new Date(val))
+    .optional(),
+  accountId: z.string().min(1).optional(),
+});
+
+// ============================================
+// CREDIT LINE SCHEMAS
+// ============================================
+
+export const CreateCreditLineSchema = z.object({
+  companyId: z.string()
+    .min(1, 'El ID de empresa es requerido'),
+  accountId: z.string().min(1).optional(),
+  bankName: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre del banco es requerido').max(100, 'El nombre del banco no puede exceder 100 caracteres')),
+  alias: sanitizedString(50)
+    .pipe(z.string().max(50, 'El alias no puede exceder 50 caracteres'))
+    .optional()
+    .default(''),
+  creditLimit: z.number()
+    .positive('El límite de crédito debe ser mayor a 0')
+    .finite('El límite debe ser un número válido'),
+  currentDrawn: z.number()
+    .min(0, 'El dispuesto no puede ser negativo')
+    .finite('El dispuesto debe ser un número válido')
+    .default(0),
+  available: z.number()
+    .min(0, 'El disponible no puede ser negativo')
+    .finite()
+    .optional(), // Se calculará automáticamente
+  interestRate: z.number()
+    .min(0, 'La tasa de interés no puede ser negativa')
+    .max(100, 'La tasa de interés no puede exceder 100%')
+    .finite('La tasa debe ser un número válido'),
+  expiryDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).refine(date => !isNaN(date.getTime()), {
+    message: 'La fecha de vencimiento no es válida',
+  }),
+  autoDrawThreshold: z.number()
+    .min(0)
+    .finite()
+    .optional(),
+  status: EntityStatusSchema.default('ACTIVE'),
+}).refine(data => {
+  // Validar que currentDrawn no exceda creditLimit
+  if (data.currentDrawn > data.creditLimit) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'El dispuesto no puede exceder el límite de crédito',
+  path: ['currentDrawn'],
+});
+
+export const UpdateCreditLineSchema = z.object({
+  companyId: z.string().min(1).optional(),
+  accountId: z.string().min(1).optional().nullable(),
+  bankName: sanitizedString(100).pipe(z.string().min(1).max(100)).optional(),
+  alias: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  creditLimit: z.number().positive().finite().optional(),
+  currentDrawn: z.number().min(0).finite().optional(),
+  interestRate: z.number().min(0).max(100).finite().optional(),
+  expiryDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).optional(),
+  autoDrawThreshold: z.number().min(0).finite().optional().nullable(),
+  status: EntityStatusSchema.optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+// ============================================
+// TIPOS INFERIDOS DE ZOD
+// ============================================
+
+export type CreateCompanyInput = z.infer<typeof CreateCompanySchema>;
+export type UpdateCompanyInput = z.infer<typeof UpdateCompanySchema>;
+export type CreateAccountInput = z.infer<typeof CreateAccountSchema>;
+export type UpdateAccountInput = z.infer<typeof UpdateAccountSchema>;
+export type BalanceUpdateInput = z.infer<typeof BalanceUpdateSchema>;
+export type CreateTransactionInput = z.infer<typeof CreateTransactionSchema>;
+export type UpdateTransactionInput = z.infer<typeof UpdateTransactionSchema>;
+export type TransactionActionInput = z.infer<typeof TransactionActionSchema>;
+export type CreateCreditLineInput = z.infer<typeof CreateCreditLineSchema>;
+export type UpdateCreditLineInput = z.infer<typeof UpdateCreditLineSchema>;
+
+// ============================================
+// UTILIDAD PARA VALIDAR Y FORMATEAR ERRORES
+// ============================================
+
+export interface ValidationResult<T> {
+  success: boolean;
+  data?: T;
+  errors?: string[];
+}
+
+export function validateSchema<T>(
+  schema: z.ZodSchema<T>,
+  data: unknown
+): ValidationResult<T> {
+  const result = schema.safeParse(data);
+  
+  if (result.success) {
+    return { success: true, data: result.data };
+  }
+  
+  const errors = result.error.issues.map((err: z.ZodIssue) => {
+    const path = err.path.length > 0 ? `${err.path.join('.')}: ` : '';
+    return `${path}${err.message}`;
+  });
+  
+  return { success: false, errors };
+}

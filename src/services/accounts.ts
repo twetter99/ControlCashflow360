@@ -5,9 +5,9 @@ import {
   getDoc,
   addDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
-  orderBy,
   Timestamp,
   DocumentData,
   QueryConstraint,
@@ -24,6 +24,7 @@ const COLLECTION_NAME = 'accounts';
 function documentToAccount(id: string, data: DocumentData): Account {
   return {
     id,
+    userId: data.userId || '',
     companyId: data.companyId,
     bankName: data.bankName,
     alias: data.alias,
@@ -39,11 +40,13 @@ function documentToAccount(id: string, data: DocumentData): Account {
 }
 
 /**
- * Obtener todas las cuentas
+ * Obtener todas las cuentas del usuario
  */
-export async function getAccounts(companyId?: string, onlyActive = true): Promise<Account[]> {
+export async function getAccounts(userId: string, companyId?: string, onlyActive = true): Promise<Account[]> {
   const db = getDb();
-  const constraints: QueryConstraint[] = [];
+  const constraints: QueryConstraint[] = [
+    where('userId', '==', userId)
+  ];
   
   if (companyId) {
     constraints.push(where('companyId', '==', companyId));
@@ -51,12 +54,13 @@ export async function getAccounts(companyId?: string, onlyActive = true): Promis
   if (onlyActive) {
     constraints.push(where('status', '==', 'ACTIVE'));
   }
-  constraints.push(orderBy('bankName'));
 
   const q = query(collection(db, COLLECTION_NAME), ...constraints);
   const snapshot = await getDocs(q);
   
-  return snapshot.docs.map((docSnap) => documentToAccount(docSnap.id, docSnap.data()));
+  const accounts = snapshot.docs.map((docSnap) => documentToAccount(docSnap.id, docSnap.data()));
+  // Ordenar en cliente
+  return accounts.sort((a, b) => a.bankName.localeCompare(b.bankName));
 }
 
 /**
@@ -77,10 +81,11 @@ export async function getAccountById(id: string): Promise<Account | null> {
 /**
  * Crear una nueva cuenta
  */
-export async function createAccount(data: CreateAccountInput): Promise<Account> {
+export async function createAccount(userId: string, data: CreateAccountInput): Promise<Account> {
   const db = getDb();
   const docRef = await addDoc(collection(db, COLLECTION_NAME), {
     ...data,
+    userId,
     lastUpdateDate: Timestamp.now(),
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
@@ -89,6 +94,7 @@ export async function createAccount(data: CreateAccountInput): Promise<Account> 
   return {
     ...data,
     id: docRef.id,
+    userId,
     lastUpdateDate: new Date(),
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -157,9 +163,18 @@ export async function updateMultipleBalances(
 }
 
 /**
- * Eliminar una cuenta (soft delete)
+ * Eliminar una cuenta permanentemente
  */
 export async function deleteAccount(id: string): Promise<void> {
+  const db = getDb();
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await deleteDoc(docRef);
+}
+
+/**
+ * Desactivar una cuenta (soft delete)
+ */
+export async function deactivateAccount(id: string): Promise<void> {
   const db = getDb();
   const docRef = doc(db, COLLECTION_NAME, id);
   await updateDoc(docRef, {
@@ -171,8 +186,8 @@ export async function deleteAccount(id: string): Promise<void> {
 /**
  * Obtener total de liquidez por empresa
  */
-export async function getTotalLiquidityByCompany(): Promise<Record<string, number>> {
-  const accounts = await getAccounts(undefined, true);
+export async function getTotalLiquidityByCompany(userId: string): Promise<Record<string, number>> {
+  const accounts = await getAccounts(userId, undefined, true);
   const totals: Record<string, number> = {};
   
   for (const account of accounts) {
@@ -188,16 +203,16 @@ export async function getTotalLiquidityByCompany(): Promise<Record<string, numbe
 /**
  * Obtener total de liquidez consolidada
  */
-export async function getTotalLiquidity(companyId?: string): Promise<number> {
-  const accounts = await getAccounts(companyId, true);
+export async function getTotalLiquidity(userId: string, companyId?: string): Promise<number> {
+  const accounts = await getAccounts(userId, companyId, true);
   return accounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
 }
 
 /**
  * Verificar si hay datos caducos (>48h sin actualizar)
  */
-export async function getStaleAccounts(hoursThreshold = 48): Promise<Account[]> {
-  const accounts = await getAccounts(undefined, true);
+export async function getStaleAccounts(userId: string, hoursThreshold = 48): Promise<Account[]> {
+  const accounts = await getAccounts(userId, undefined, true);
   const thresholdDate = new Date();
   thresholdDate.setHours(thresholdDate.getHours() - hoursThreshold);
   

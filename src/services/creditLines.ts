@@ -5,9 +5,9 @@ import {
   getDoc,
   addDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
-  orderBy,
   Timestamp,
   DocumentData,
   QueryConstraint,
@@ -23,6 +23,7 @@ const COLLECTION_NAME = 'credit_lines';
 function documentToCreditLine(id: string, data: DocumentData): CreditLine {
   return {
     id,
+    userId: data.userId || '',
     companyId: data.companyId,
     bankName: data.bankName,
     alias: data.alias,
@@ -41,11 +42,13 @@ function documentToCreditLine(id: string, data: DocumentData): CreditLine {
 }
 
 /**
- * Obtener todas las pólizas de crédito
+ * Obtener todas las pólizas de crédito del usuario
  */
-export async function getCreditLines(companyId?: string, onlyActive = true): Promise<CreditLine[]> {
+export async function getCreditLines(userId: string, companyId?: string, onlyActive = true): Promise<CreditLine[]> {
   const db = getDb();
-  const constraints: QueryConstraint[] = [];
+  const constraints: QueryConstraint[] = [
+    where('userId', '==', userId)
+  ];
   
   if (companyId) {
     constraints.push(where('companyId', '==', companyId));
@@ -53,12 +56,13 @@ export async function getCreditLines(companyId?: string, onlyActive = true): Pro
   if (onlyActive) {
     constraints.push(where('status', '==', 'ACTIVE'));
   }
-  constraints.push(orderBy('bankName'));
 
   const q = query(collection(db, COLLECTION_NAME), ...constraints);
   const snapshot = await getDocs(q);
   
-  return snapshot.docs.map((docSnap) => documentToCreditLine(docSnap.id, docSnap.data()));
+  const lines = snapshot.docs.map((docSnap) => documentToCreditLine(docSnap.id, docSnap.data()));
+  // Ordenar en cliente
+  return lines.sort((a, b) => a.bankName.localeCompare(b.bankName));
 }
 
 /**
@@ -79,10 +83,11 @@ export async function getCreditLineById(id: string): Promise<CreditLine | null> 
 /**
  * Crear una nueva póliza
  */
-export async function createCreditLine(data: CreateCreditLineInput): Promise<CreditLine> {
+export async function createCreditLine(userId: string, data: CreateCreditLineInput): Promise<CreditLine> {
   const db = getDb();
   const docData = {
     ...data,
+    userId,
     available: data.creditLimit - data.currentDrawn,
     expiryDate: Timestamp.fromDate(data.expiryDate),
     lastUpdateDate: Timestamp.now(),
@@ -95,6 +100,7 @@ export async function createCreditLine(data: CreateCreditLineInput): Promise<Cre
   return {
     ...data,
     id: docRef.id,
+    userId,
     available: data.creditLimit - data.currentDrawn,
     lastUpdateDate: new Date(),
     createdAt: new Date(),
@@ -156,9 +162,18 @@ export async function updateCreditLineDrawn(
 }
 
 /**
- * Eliminar una póliza (soft delete)
+ * Eliminar una póliza permanentemente
  */
 export async function deleteCreditLine(id: string): Promise<void> {
+  const db = getDb();
+  const docRef = doc(db, COLLECTION_NAME, id);
+  await deleteDoc(docRef);
+}
+
+/**
+ * Desactivar una póliza (soft delete)
+ */
+export async function deactivateCreditLine(id: string): Promise<void> {
   const db = getDb();
   const docRef = doc(db, COLLECTION_NAME, id);
   await updateDoc(docRef, {
@@ -170,16 +185,16 @@ export async function deleteCreditLine(id: string): Promise<void> {
 /**
  * Obtener total de crédito disponible
  */
-export async function getTotalCreditAvailable(companyId?: string): Promise<number> {
-  const creditLines = await getCreditLines(companyId, true);
+export async function getTotalCreditAvailable(userId: string, companyId?: string): Promise<number> {
+  const creditLines = await getCreditLines(userId, companyId, true);
   return creditLines.reduce((sum, cl) => sum + cl.available, 0);
 }
 
 /**
  * Obtener total de crédito por empresa
  */
-export async function getCreditAvailableByCompany(): Promise<Record<string, number>> {
-  const creditLines = await getCreditLines(undefined, true);
+export async function getCreditAvailableByCompany(userId: string): Promise<Record<string, number>> {
+  const creditLines = await getCreditLines(userId, undefined, true);
   const totals: Record<string, number> = {};
   
   for (const cl of creditLines) {
@@ -195,8 +210,8 @@ export async function getCreditAvailableByCompany(): Promise<Record<string, numb
 /**
  * Obtener pólizas que vencen pronto
  */
-export async function getExpiringCreditLines(daysAhead = 90): Promise<CreditLine[]> {
-  const creditLines = await getCreditLines(undefined, true);
+export async function getExpiringCreditLines(userId: string, daysAhead = 90): Promise<CreditLine[]> {
+  const creditLines = await getCreditLines(userId, undefined, true);
   const thresholdDate = new Date();
   thresholdDate.setDate(thresholdDate.getDate() + daysAhead);
   
@@ -206,7 +221,7 @@ export async function getExpiringCreditLines(daysAhead = 90): Promise<CreditLine
 /**
  * Obtener pólizas con disponible bajo (menos del 20%)
  */
-export async function getLowAvailableCreditLines(): Promise<CreditLine[]> {
-  const creditLines = await getCreditLines(undefined, true);
+export async function getLowAvailableCreditLines(userId: string): Promise<CreditLine[]> {
+  const creditLines = await getCreditLines(userId, undefined, true);
   return creditLines.filter((cl) => cl.available / cl.creditLimit < 0.2);
 }
