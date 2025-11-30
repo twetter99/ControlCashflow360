@@ -92,6 +92,30 @@ export interface CreditLine {
 }
 
 // ============================================
+// Colección: credit_cards (Tarjetas de Crédito)
+// ============================================
+
+export interface CreditCard {
+  id: string;
+  userId: string;
+  companyId: string;
+  bankName: string;
+  cardAlias: string;
+  cardNumberLast4: string; // Solo últimos 4 dígitos por seguridad
+  cardHolder: string;
+  creditLimit: number;
+  currentBalance: number; // Saldo dispuesto (deuda)
+  availableCredit: number; // Crédito disponible
+  cutoffDay: number; // Día de corte (1-31)
+  paymentDueDay: number; // Día de pago (1-31)
+  status: EntityStatus;
+  lastUpdatedBy?: string;
+  lastUpdateDate?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// ============================================
 // Colección: transactions (Movimientos)
 // ============================================
 

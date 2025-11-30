@@ -259,6 +259,73 @@ export const UpdateCreditLineSchema = z.object({
 });
 
 // ============================================
+// CREDIT CARD SCHEMAS (Tarjetas de Crédito)
+// ============================================
+
+export const CreateCreditCardSchema = z.object({
+  companyId: z.string()
+    .min(1, 'El ID de empresa es requerido'),
+  bankName: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre del banco es requerido').max(100, 'El nombre del banco no puede exceder 100 caracteres')),
+  cardAlias: sanitizedString(50)
+    .pipe(z.string().min(1, 'El alias de la tarjeta es requerido').max(50, 'El alias no puede exceder 50 caracteres')),
+  cardNumberLast4: z.string()
+    .regex(/^\d{4}$/, 'Debe ser los últimos 4 dígitos de la tarjeta')
+    .transform(val => val.trim()),
+  cardHolder: sanitizedString(100)
+    .pipe(z.string().min(1, 'El titular es requerido').max(100, 'El titular no puede exceder 100 caracteres')),
+  creditLimit: z.number()
+    .positive('El límite de crédito debe ser mayor a 0')
+    .finite('El límite debe ser un número válido'),
+  currentBalance: z.number()
+    .min(0, 'El saldo dispuesto no puede ser negativo')
+    .finite('El saldo debe ser un número válido')
+    .default(0),
+  cutoffDay: z.number()
+    .int('El día de corte debe ser un número entero')
+    .min(1, 'El día de corte debe ser entre 1 y 31')
+    .max(31, 'El día de corte debe ser entre 1 y 31'),
+  paymentDueDay: z.number()
+    .int('El día de pago debe ser un número entero')
+    .min(1, 'El día de pago debe ser entre 1 y 31')
+    .max(31, 'El día de pago debe ser entre 1 y 31'),
+  status: EntityStatusSchema.default('ACTIVE'),
+}).refine(data => {
+  // Validar que currentBalance no exceda creditLimit
+  if (data.currentBalance > data.creditLimit) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'El saldo dispuesto no puede exceder el límite de crédito',
+  path: ['currentBalance'],
+});
+
+export const UpdateCreditCardSchema = z.object({
+  companyId: z.string().min(1).optional(),
+  bankName: sanitizedString(100).pipe(z.string().min(1).max(100)).optional(),
+  cardAlias: sanitizedString(50).pipe(z.string().min(1).max(50)).optional(),
+  cardNumberLast4: z.string()
+    .regex(/^\d{4}$/, 'Debe ser los últimos 4 dígitos de la tarjeta')
+    .optional(),
+  cardHolder: sanitizedString(100).pipe(z.string().min(1).max(100)).optional(),
+  creditLimit: z.number().positive().finite().optional(),
+  currentBalance: z.number().min(0).finite().optional(),
+  cutoffDay: z.number().int().min(1).max(31).optional(),
+  paymentDueDay: z.number().int().min(1).max(31).optional(),
+  status: EntityStatusSchema.optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+// Schema para actualización de saldo de tarjeta
+export const CreditCardBalanceUpdateSchema = z.object({
+  currentBalance: z.number()
+    .min(0, 'El saldo no puede ser negativo')
+    .finite('El saldo debe ser un número válido'),
+});
+
+// ============================================
 // TIPOS INFERIDOS DE ZOD
 // ============================================
 
@@ -272,6 +339,9 @@ export type UpdateTransactionInput = z.infer<typeof UpdateTransactionSchema>;
 export type TransactionActionInput = z.infer<typeof TransactionActionSchema>;
 export type CreateCreditLineInput = z.infer<typeof CreateCreditLineSchema>;
 export type UpdateCreditLineInput = z.infer<typeof UpdateCreditLineSchema>;
+export type CreateCreditCardInput = z.infer<typeof CreateCreditCardSchema>;
+export type UpdateCreditCardInput = z.infer<typeof UpdateCreditCardSchema>;
+export type CreditCardBalanceUpdateInput = z.infer<typeof CreditCardBalanceUpdateSchema>;
 
 // ============================================
 // UTILIDAD PARA VALIDAR Y FORMATEAR ERRORES

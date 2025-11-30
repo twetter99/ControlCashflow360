@@ -1,31 +1,38 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { Bell, ChevronDown, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui';
-
-interface Company {
-  id: string;
-  name: string;
-}
-
-// Datos de ejemplo - en producción vendrían de Firestore
-const mockCompanies: Company[] = [
-  { id: 'winfin_sistemas', name: 'WINFIN Sistemas' },
-  { id: 'winfin_instalaciones', name: 'WINFIN Instalaciones' },
-  { id: 'winfin_servicios', name: 'WINFIN Servicios' },
-];
+import { companiesApi } from '@/lib/api-client';
+import { Company } from '@/types';
 
 export function Header() {
   const { user, userProfile, logout } = useAuth();
   const { selectedCompanyId, setSelectedCompanyId } = useCompanyFilter();
   const [showUserMenu, setShowUserMenu] = React.useState(false);
   const [showCompanyMenu, setShowCompanyMenu] = React.useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+
+  // Cargar empresas reales desde la API
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadCompanies = async () => {
+      try {
+        const data = await companiesApi.getAll();
+        setCompanies(data.filter(c => c.status === 'ACTIVE'));
+      } catch (error) {
+        console.error('Error cargando empresas:', error);
+      }
+    };
+    
+    loadCompanies();
+  }, [user]);
 
   const selectedCompany = selectedCompanyId
-    ? mockCompanies.find((c) => c.id === selectedCompanyId)
+    ? companies.find((c) => c.id === selectedCompanyId)
     : null;
 
   const handleLogout = async () => {
@@ -64,7 +71,7 @@ export function Header() {
               >
                 Todas las empresas
               </button>
-              {mockCompanies.map((company) => (
+              {companies.map((company) => (
                 <button
                   key={company.id}
                   onClick={() => {

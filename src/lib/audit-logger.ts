@@ -25,6 +25,7 @@ export type AuditEntity =
   | 'account'
   | 'transaction'
   | 'credit_line'
+  | 'credit_card'
   | 'user'
   | 'settings'
   | 'report';

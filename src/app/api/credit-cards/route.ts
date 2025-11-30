@@ -7,29 +7,33 @@ import {
   withErrorHandling,
   parseAndValidate,
 } from '@/lib/api-utils';
-import { CreditLine } from '@/types';
+import { CreditCard } from '@/types';
 import { Timestamp } from 'firebase-admin/firestore';
-import { CreateCreditLineSchema } from '@/lib/validations/schemas';
+import { CreateCreditCardSchema } from '@/lib/validations/schemas';
 import { logCreate } from '@/lib/audit-logger';
 
-const COLLECTION = 'creditLines';
+const COLLECTION = 'credit_cards';
 
 /**
- * Mapea datos de Firestore a CreditLine
+ * Mapea datos de Firestore a CreditCard
  */
-function mapToCreditLine(id: string, data: FirebaseFirestore.DocumentData): CreditLine {
+function mapToCreditCard(id: string, data: FirebaseFirestore.DocumentData): CreditCard {
+  const creditLimit = data.creditLimit || 0;
+  const currentBalance = data.currentBalance || 0;
+  
   return {
     id,
     userId: data.userId,
     companyId: data.companyId,
     bankName: data.bankName || '',
-    alias: data.alias || '',
-    creditLimit: data.creditLimit || 0,
-    currentDrawn: data.currentDrawn || 0,
-    available: data.available || data.creditLimit - (data.currentDrawn || 0),
-    interestRate: data.interestRate || 0,
-    expiryDate: data.expiryDate?.toDate?.() || new Date(),
-    autoDrawThreshold: data.autoDrawThreshold || undefined,
+    cardAlias: data.cardAlias || '',
+    cardNumberLast4: data.cardNumberLast4 || '****',
+    cardHolder: data.cardHolder || '',
+    creditLimit,
+    currentBalance,
+    availableCredit: creditLimit - currentBalance,
+    cutoffDay: data.cutoffDay || 1,
+    paymentDueDay: data.paymentDueDay || 15,
     status: data.status || 'ACTIVE',
     lastUpdatedBy: data.lastUpdatedBy || '',
     lastUpdateDate: data.lastUpdateDate?.toDate?.() || undefined,
@@ -39,7 +43,7 @@ function mapToCreditLine(id: string, data: FirebaseFirestore.DocumentData): Cred
 }
 
 /**
- * GET /api/credit-lines - Obtener todas las líneas de crédito del usuario
+ * GET /api/credit-cards - Obtener todas las tarjetas de crédito del usuario
  */
 export async function GET(request: NextRequest) {
   return withErrorHandling(async () => {
@@ -57,29 +61,29 @@ export async function GET(request: NextRequest) {
     // Query simple sin orderBy para evitar índices compuestos
     const snapshot = await db.collection(COLLECTION).where('userId', '==', userId).get();
 
-    let creditLines: CreditLine[] = snapshot.docs.map((doc) => 
-      mapToCreditLine(doc.id, doc.data())
+    let creditCards: CreditCard[] = snapshot.docs.map((doc) => 
+      mapToCreditCard(doc.id, doc.data())
     );
 
     // Filtrar por companyId si es necesario
     if (companyId) {
-      creditLines = creditLines.filter(cl => cl.companyId === companyId);
+      creditCards = creditCards.filter(cc => cc.companyId === companyId);
     }
 
     // Filtrar por status si es necesario
     if (!includeInactive) {
-      creditLines = creditLines.filter(cl => cl.status === 'ACTIVE');
+      creditCards = creditCards.filter(cc => cc.status === 'ACTIVE');
     }
 
     // Ordenar en memoria por createdAt desc
-    creditLines.sort((a, b) => new Date(b.createdAt || new Date()).getTime() - new Date(a.createdAt || new Date()).getTime());
+    creditCards.sort((a, b) => new Date(b.createdAt || new Date()).getTime() - new Date(a.createdAt || new Date()).getTime());
 
-    return successResponse(creditLines);
+    return successResponse(creditCards);
   });
 }
 
 /**
- * POST /api/credit-lines - Crear nueva línea de crédito
+ * POST /api/credit-cards - Crear nueva tarjeta de crédito
  */
 export async function POST(request: NextRequest) {
   return withErrorHandling(async () => {
@@ -87,8 +91,8 @@ export async function POST(request: NextRequest) {
     if ('error' in authResult) return authResult.error;
     const { userId } = authResult;
 
-    // Validar con Zod
-    const validation = await parseAndValidate(request, CreateCreditLineSchema);
+    // Validar con Zod (incluye sanitización XSS)
+    const validation = await parseAndValidate(request, CreateCreditCardSchema);
     if (!validation.success) return validation.error;
     const body = validation.data;
 
@@ -99,46 +103,49 @@ export async function POST(request: NextRequest) {
     if (!companyDoc.exists || companyDoc.data()?.userId !== userId) {
       return errorResponse('Empresa no válida', 400, 'INVALID_COMPANY');
     }
-    
+
     const now = Timestamp.now();
-    const expiryDate = body.expiryDate instanceof Date ? body.expiryDate : new Date(body.expiryDate);
-    const available = body.creditLimit - body.currentDrawn;
     
-    const creditLineData = {
+    // Calcular crédito disponible
+    const availableCredit = body.creditLimit - body.currentBalance;
+
+    const creditCardData = {
+      userId,
       companyId: body.companyId,
       bankName: body.bankName,
-      alias: body.alias,
+      cardAlias: body.cardAlias,
+      cardNumberLast4: body.cardNumberLast4,
+      cardHolder: body.cardHolder,
       creditLimit: body.creditLimit,
-      currentDrawn: body.currentDrawn,
-      available,
-      interestRate: body.interestRate,
-      expiryDate: Timestamp.fromDate(expiryDate),
-      autoDrawThreshold: body.autoDrawThreshold || null,
+      currentBalance: body.currentBalance,
+      availableCredit,
+      cutoffDay: body.cutoffDay,
+      paymentDueDay: body.paymentDueDay,
       status: body.status,
       lastUpdatedBy: userId,
       lastUpdateDate: now,
-      userId,
       createdAt: now,
       updatedAt: now,
     };
 
-    const docRef = await db.collection(COLLECTION).add(creditLineData);
+    const docRef = await db.collection(COLLECTION).add(creditCardData);
 
-    // Registrar en auditoría
-    await logCreate(userId, 'credit_line', docRef.id, {
+    // Log de auditoría
+    await logCreate(userId, 'credit_card', docRef.id, {
       bankName: body.bankName,
-      alias: body.alias,
-      creditLimit: body.creditLimit,
-      currentDrawn: body.currentDrawn,
-      interestRate: body.interestRate,
-    }, { entityName: body.alias || body.bankName });
+      cardAlias: body.cardAlias,
+      cardNumberLast4: body.cardNumberLast4,
+      companyId: body.companyId,
+    });
 
-    return successResponse(mapToCreditLine(docRef.id, {
-      ...creditLineData,
-      expiryDate: { toDate: () => expiryDate },
-      lastUpdateDate: { toDate: () => now.toDate() },
-      createdAt: { toDate: () => now.toDate() },
-      updatedAt: { toDate: () => now.toDate() },
-    }), 201);
+    const newCreditCard: CreditCard = {
+      id: docRef.id,
+      ...creditCardData,
+      lastUpdateDate: now.toDate(),
+      createdAt: now.toDate(),
+      updatedAt: now.toDate(),
+    };
+
+    return successResponse(newCreditCard, 201);
   });
 }

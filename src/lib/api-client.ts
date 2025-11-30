@@ -4,6 +4,7 @@ import {
   Account,
   Transaction,
   CreditLine,
+  CreditCard,
   CreateCompanyInput,
   UpdateCompanyInput,
   CreateAccountInput,
@@ -13,6 +14,10 @@ import {
   CreateCreditLineInput,
   UpdateCreditLineInput,
 } from '@/types';
+import {
+  CreateCreditCardInput,
+  UpdateCreditCardInput,
+} from '@/lib/validations/schemas';
 
 type ApiResponse<T> = {
   success: boolean;
@@ -162,6 +167,16 @@ export const accountsApi = {
   async delete(id: string): Promise<{ deleted: boolean; id: string }> {
     return apiRequest<{ deleted: boolean; id: string }>(`/api/accounts/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  /**
+   * Actualizar solo el saldo de la cuenta (para Rutina Diaria)
+   */
+  async updateBalance(id: string, data: { currentBalance: number }): Promise<Account> {
+    return apiRequest<Account>(`/api/accounts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
     });
   },
 };
@@ -317,6 +332,90 @@ export const creditLinesApi = {
    */
   async delete(id: string): Promise<{ deleted: boolean; id: string }> {
     return apiRequest<{ deleted: boolean; id: string }>(`/api/credit-lines/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Actualizar solo el saldo dispuesto (para Rutina Diaria)
+   */
+  async updateBalance(id: string, data: { currentDrawn: number }): Promise<CreditLine> {
+    return apiRequest<CreditLine>(`/api/credit-lines/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
+// ============================================
+// CREDIT CARDS API (Tarjetas de Crédito)
+// ============================================
+
+interface CreditCardFilters {
+  companyId?: string;
+  includeInactive?: string;
+}
+
+export const creditCardsApi = {
+  /**
+   * Obtener todas las tarjetas de crédito del usuario
+   */
+  async getAll(filters?: CreditCardFilters): Promise<CreditCard[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    const queryString = params.toString();
+    const url = queryString 
+      ? `/api/credit-cards?${queryString}`
+      : '/api/credit-cards';
+    return apiRequest<CreditCard[]>(url);
+  },
+
+  /**
+   * Obtener tarjeta de crédito por ID
+   */
+  async getById(id: string): Promise<CreditCard> {
+    return apiRequest<CreditCard>(`/api/credit-cards/${id}`);
+  },
+
+  /**
+   * Crear nueva tarjeta de crédito
+   */
+  async create(data: CreateCreditCardInput): Promise<CreditCard> {
+    return apiRequest<CreditCard>('/api/credit-cards', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar tarjeta de crédito
+   */
+  async update(id: string, data: UpdateCreditCardInput): Promise<CreditCard> {
+    return apiRequest<CreditCard>(`/api/credit-cards/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar solo el saldo de la tarjeta (para Rutina Diaria)
+   */
+  async updateBalance(id: string, data: { currentBalance: number }): Promise<CreditCard> {
+    return apiRequest<CreditCard>(`/api/credit-cards/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Eliminar tarjeta de crédito
+   */
+  async delete(id: string): Promise<{ deleted: boolean; id: string }> {
+    return apiRequest<{ deleted: boolean; id: string }>(`/api/credit-cards/${id}`, {
       method: 'DELETE',
     });
   },

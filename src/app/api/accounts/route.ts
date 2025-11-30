@@ -30,19 +30,10 @@ export async function GET(request: NextRequest) {
     const companyId = searchParams.get('companyId');
     const includeInactive = searchParams.get('includeInactive') === 'true';
 
-    let query = db.collection(COLLECTION).where('userId', '==', userId);
+    // Query simple sin orderBy para evitar índices compuestos
+    const snapshot = await db.collection(COLLECTION).where('userId', '==', userId).get();
 
-    if (companyId) {
-      query = query.where('companyId', '==', companyId);
-    }
-    
-    if (!includeInactive) {
-      query = query.where('status', '==', 'ACTIVE');
-    }
-
-    const snapshot = await query.orderBy('createdAt', 'desc').get();
-
-    const accounts: Account[] = snapshot.docs.map((doc) => {
+    let accounts: Account[] = snapshot.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -60,6 +51,19 @@ export async function GET(request: NextRequest) {
         updatedAt: data.updatedAt?.toDate?.() || new Date(),
       } as Account;
     });
+
+    // Filtrar por companyId si es necesario
+    if (companyId) {
+      accounts = accounts.filter(a => a.companyId === companyId);
+    }
+
+    // Filtrar por status si es necesario
+    if (!includeInactive) {
+      accounts = accounts.filter(a => a.status === 'ACTIVE');
+    }
+
+    // Ordenar en memoria por createdAt desc
+    accounts.sort((a, b) => new Date(b.createdAt || new Date()).getTime() - new Date(a.createdAt || new Date()).getTime());
 
     return successResponse(accounts);
   });

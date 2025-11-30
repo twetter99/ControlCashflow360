@@ -188,3 +188,67 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return successResponse({ deleted: true, id });
   });
 }
+
+/**
+ * PATCH /api/credit-lines/[id] - Actualización rápida de saldo dispuesto (Rutina Diaria)
+ */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  return withErrorHandling(async () => {
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
+
+    const { id } = await params;
+
+    const body = await request.json();
+    const { currentDrawn } = body;
+
+    if (typeof currentDrawn !== 'number') {
+      return errorResponse('El saldo dispuesto debe ser un número', 400, 'INVALID_BALANCE');
+    }
+
+    const db = getAdminDb();
+    const docRef = db.collection(COLLECTION).doc(id);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return errorResponse('Línea de crédito no encontrada', 404, 'NOT_FOUND');
+    }
+
+    const existingData = docSnap.data()!;
+    
+    if (!verifyOwnership(existingData.userId, userId)) {
+      return errorResponse('No tienes permiso para editar esta línea de crédito', 403, 'FORBIDDEN');
+    }
+
+    const creditLimit = existingData.creditLimit || 0;
+    
+    if (currentDrawn > creditLimit) {
+      return errorResponse('El saldo dispuesto no puede superar el límite de crédito', 400, 'EXCEEDS_LIMIT');
+    }
+
+    const now = Timestamp.now();
+    const previousDrawn = existingData.currentDrawn || 0;
+    const available = creditLimit - currentDrawn;
+    
+    await docRef.update({
+      currentDrawn,
+      available,
+      lastUpdateDate: now,
+      lastUpdatedBy: userId,
+      updatedAt: now,
+    });
+
+    const updatedSnap = await docRef.get();
+    const updatedData = updatedSnap.data()!;
+
+    // Registrar en auditoría
+    await logUpdate(userId, 'credit_line', id,
+      { currentDrawn: previousDrawn },
+      { currentDrawn },
+      { entityName: updatedData.alias || updatedData.bankName }
+    );
+
+    return successResponse(mapToCreditLine(updatedSnap.id, updatedData));
+  });
+}

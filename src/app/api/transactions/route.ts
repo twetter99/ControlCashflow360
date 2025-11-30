@@ -63,28 +63,26 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    let query = db.collection(COLLECTION).where('userId', '==', userId);
-
-    if (accountId) {
-      query = query.where('accountId', '==', accountId);
-    }
-    if (companyId) {
-      query = query.where('companyId', '==', companyId);
-    }
-    if (type) {
-      query = query.where('type', '==', type);
-    }
-    if (status) {
-      query = query.where('status', '==', status);
-    }
-
-    const snapshot = await query.orderBy('dueDate', 'desc').get();
+    // Query simple sin orderBy para evitar índices compuestos
+    const snapshot = await db.collection(COLLECTION).where('userId', '==', userId).get();
 
     let transactions: Transaction[] = snapshot.docs.map((doc) => 
       mapToTransaction(doc.id, doc.data())
     );
 
-    // Filtrar por fecha si se proporcionan (filtrado en cliente por simplicidad)
+    // Filtrar en memoria
+    if (accountId) {
+      transactions = transactions.filter(t => t.accountId === accountId);
+    }
+    if (companyId) {
+      transactions = transactions.filter(t => t.companyId === companyId);
+    }
+    if (type) {
+      transactions = transactions.filter(t => t.type === type);
+    }
+    if (status) {
+      transactions = transactions.filter(t => t.status === status);
+    }
     if (startDate) {
       const start = new Date(startDate);
       transactions = transactions.filter(t => new Date(t.dueDate) >= start);
@@ -93,6 +91,9 @@ export async function GET(request: NextRequest) {
       const end = new Date(endDate);
       transactions = transactions.filter(t => new Date(t.dueDate) <= end);
     }
+
+    // Ordenar en memoria por dueDate desc
+    transactions.sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
 
     return successResponse(transactions);
   });

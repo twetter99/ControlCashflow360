@@ -18,6 +18,14 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 
+// Formatea IBAN en bloques de 4 caracteres para mejor legibilidad
+const formatIbanDisplay = (iban: string): string => {
+  if (!iban) return '';
+  // Eliminar espacios existentes y formatear en bloques de 4
+  const clean = iban.replace(/\s/g, '');
+  return clean.match(/.{1,4}/g)?.join(' ') || clean;
+};
+
 interface AccountFormData {
   bankName: string;
   alias: string;
@@ -161,8 +169,10 @@ export default function AccountsPage() {
     }
   };
 
-  const isStale = (date: Date) => {
-    const hoursDiff = (new Date().getTime() - date.getTime()) / (1000 * 60 * 60);
+  const isStale = (date: Date | string | undefined) => {
+    if (!date) return false;
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    const hoursDiff = (new Date().getTime() - dateObj.getTime()) / (1000 * 60 * 60);
     return hoursDiff > 48;
   };
 
@@ -230,8 +240,8 @@ export default function AccountsPage() {
                 <th className="pb-3 font-medium">Banco / Alias</th>
                 <th className="pb-3 font-medium">Empresa</th>
                 <th className="pb-3 font-medium">Número de Cuenta</th>
-                <th className="pb-3 font-medium text-right">Saldo</th>
-                <th className="pb-3 font-medium">Última Actualización</th>
+                <th className="pb-3 font-medium text-right pr-6">Saldo</th>
+                <th className="pb-3 font-medium pl-6">Última Actualización</th>
                 <th className="pb-3 font-medium text-center">Acciones</th>
               </tr>
             </thead>
@@ -255,14 +265,14 @@ export default function AccountsPage() {
                     <span className="text-sm text-gray-600">{getCompanyName(account.companyId)}</span>
                   </td>
                   <td className="py-4">
-                    <span className="text-sm text-gray-600 font-mono">{account.accountNumber}</span>
+                    <span className="text-sm text-gray-600 font-mono">{formatIbanDisplay(account.accountNumber)}</span>
                   </td>
-                  <td className="py-4 text-right">
+                  <td className="py-4 text-right pr-6">
                     <span className="font-semibold text-gray-900">
                       {formatCurrency(account.currentBalance)}
                     </span>
                   </td>
-                  <td className="py-4">
+                  <td className="py-4 pl-6">
                     <div className="flex flex-col">
                       <span className="text-sm text-gray-600">
                         {formatDateTime(account.lastUpdateDate)}

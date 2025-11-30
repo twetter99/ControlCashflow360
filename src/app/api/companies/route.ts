@@ -54,15 +54,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const includeInactive = searchParams.get('includeInactive') === 'true';
 
-    let query = db.collection(COLLECTION).where('userId', '==', userId);
-    
-    if (!includeInactive) {
-      query = query.where('status', '==', 'ACTIVE');
-    }
+    // Query simple sin orderBy para evitar índices compuestos
+    const snapshot = await db.collection(COLLECTION).where('userId', '==', userId).get();
 
-    const snapshot = await query.orderBy('createdAt', 'desc').get();
-
-    const companies: Company[] = snapshot.docs.map((doc) => {
+    let companies: Company[] = snapshot.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -76,6 +71,14 @@ export async function GET(request: NextRequest) {
         updatedAt: data.updatedAt?.toDate?.() || new Date(),
       } as Company;
     });
+
+    // Filtrar por status si es necesario
+    if (!includeInactive) {
+      companies = companies.filter(c => c.status === 'ACTIVE');
+    }
+
+    // Ordenar en memoria por createdAt desc
+    companies.sort((a, b) => new Date(b.createdAt || new Date()).getTime() - new Date(a.createdAt || new Date()).getTime());
 
     return successResponse(companies);
   });

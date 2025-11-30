@@ -192,3 +192,60 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return successResponse({ deleted: true, id });
   });
 }
+
+/**
+ * PATCH /api/accounts/[id] - Actualización rápida de saldo (Rutina Diaria)
+ */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  return withErrorHandling(async () => {
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
+
+    const { id } = await params;
+
+    const body = await request.json();
+    const { currentBalance } = body;
+
+    if (typeof currentBalance !== 'number') {
+      return errorResponse('El saldo debe ser un número', 400, 'INVALID_BALANCE');
+    }
+
+    const db = getAdminDb();
+    const docRef = db.collection(COLLECTION).doc(id);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return errorResponse('Cuenta no encontrada', 404, 'NOT_FOUND');
+    }
+
+    const existingData = docSnap.data()!;
+    
+    if (!verifyOwnership(existingData.userId, userId)) {
+      return errorResponse('No tienes permiso para editar esta cuenta', 403, 'FORBIDDEN');
+    }
+
+    const now = Timestamp.now();
+    const previousBalance = existingData.currentBalance || 0;
+    
+    await docRef.update({
+      currentBalance,
+      lastUpdateAmount: currentBalance - previousBalance,
+      lastUpdateDate: now,
+      lastUpdatedBy: userId,
+      updatedAt: now,
+    });
+
+    const updatedSnap = await docRef.get();
+    const updatedData = updatedSnap.data()!;
+
+    // Registrar en auditoría
+    await logUpdate(userId, 'account', id,
+      { currentBalance: previousBalance },
+      { currentBalance },
+      { entityName: updatedData.alias || updatedData.bankName }
+    );
+
+    return successResponse(mapToAccount(updatedSnap.id, updatedData));
+  });
+}
