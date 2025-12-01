@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountsApi, creditLinesApi, transactionsApi } from '@/lib/api-client';
+import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi } from '@/lib/api-client';
 import { Account, CreditLine, Transaction } from '@/types';
 import { 
   Wallet, 
@@ -22,13 +22,41 @@ import Link from 'next/link';
 
 type ScenarioType = 'CONSERVATIVE' | 'REALISTIC' | 'OPTIMISTIC';
 
-interface ProjectionData {
-  period: string;
-  incomes: number;
-  expenses: number;
-  netFlow: number;
-  balance: number;
+/**
+ * Bucket de previsión con saldo acumulativo
+ * Cada bucket representa un período específico (ej: días 0-30, 31-60, 61-90)
+ * El saldoAcumulado arrastra el resultado de los buckets anteriores
+ */
+interface ForecastBucket {
+  label: string;           // "Próximos 30 días", "Días 31-60", etc.
+  dateRange: string;       // "1 Dic - 31 Dic 2025" - Rango de fechas real
+  monthNames: string;      // "Diciembre" o "Diciembre-Enero" si cruza meses
+  startDay: number;        // Día inicial del período (0, 31, 61)
+  endDay: number;          // Día final del período (30, 60, 90)
+  incomes: number;         // Cobros SOLO de este período
+  expenses: number;        // Pagos SOLO de este período
+  netFlow: number;         // Flujo neto de este período (incomes - expenses)
+  cumulativeBalance: number; // Saldo acumulado (saldo inicial + todos los flujos hasta este bucket)
 }
+
+/*
+ * EJEMPLO DE CÁLCULO ACUMULATIVO:
+ * 
+ * Supongamos:
+ *   - Saldo inicial en bancos: 10.000€
+ *   - Mes 1 (0-30): +5.000 cobros, -8.000 pagos → flujo -3.000€
+ *   - Mes 2 (31-60): +2.000 cobros, -1.000 pagos → flujo +1.000€
+ *   - Mes 3 (61-90): +4.000 cobros, -2.000 pagos → flujo +2.000€
+ * 
+ * Resultado:
+ *   | Período | Cobros | Pagos | Flujo  | Saldo Acumulado |
+ *   |---------|--------|-------|--------|-----------------|
+ *   | 0-30    | 5.000  | 8.000 | -3.000 | 7.000€          | (10.000 - 3.000)
+ *   | 31-60   | 2.000  | 1.000 | +1.000 | 8.000€          | (7.000 + 1.000)
+ *   | 61-90   | 4.000  | 2.000 | +2.000 | 10.000€         | (8.000 + 2.000)
+ * 
+ * El saldo negativo del primer período SE ARRASTRA al siguiente.
+ */
 
 export default function DashboardPage() {
   const { selectedCompanyId } = useCompanyFilter();
@@ -48,6 +76,26 @@ export default function DashboardPage() {
     const loadData = async () => {
       try {
         setLoading(true);
+        
+        // Primero regenerar recurrencias para asegurar transacciones futuras
+        // Solo regenerar si han pasado más de 6 horas desde la última vez
+        // (la Cloud Function corre diariamente, esto es un respaldo)
+        try {
+          const lastRegenKey = 'winfin_last_recurrence_regen';
+          const lastRegen = localStorage.getItem(lastRegenKey);
+          const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
+          
+          if (!lastRegen || parseInt(lastRegen) < sixHoursAgo) {
+            await recurrencesApi.regenerate();
+            localStorage.setItem(lastRegenKey, String(Date.now()));
+            console.log('[Dashboard] Recurrencias regeneradas correctamente');
+          }
+        } catch (regenError) {
+          // No bloquear si falla la regeneración, solo log
+          console.warn('Regeneración de recurrencias falló (puede ser primera carga):', regenError);
+        }
+        
+        // Luego cargar todos los datos
         const [accountsData, creditLinesData, transactionsData] = await Promise.all([
           accountsApi.getAll(),
           creditLinesApi.getAll(),
@@ -90,6 +138,7 @@ export default function DashboardPage() {
   // CAPA 2: PREVISIONES (MOVIMIENTOS)
   // ==========================================
   const today = new Date();
+  today.setHours(0, 0, 0, 0); // Normalizar a inicio del día
   const pendingTransactions = filteredTransactions.filter(tx => tx.status === 'PENDING');
 
   // Filtrar por certeza según escenario
@@ -109,36 +158,94 @@ export default function DashboardPage() {
     }
   };
 
-  // Calcular proyecciones por periodo
-  const calculateProjection = (daysAhead: number): ProjectionData => {
-    const endDate = new Date(today);
-    endDate.setDate(endDate.getDate() + daysAhead);
-    
-    const txsInPeriod = getFilteredByScenario(pendingTransactions).filter(tx => {
-      const dueDate = new Date(tx.dueDate);
-      return dueDate >= today && dueDate <= endDate;
-    });
-
-    const incomes = txsInPeriod
-      .filter(tx => tx.type === 'INCOME')
-      .reduce((sum, tx) => sum + tx.amount, 0);
-    
-    const expenses = txsInPeriod
-      .filter(tx => tx.type === 'EXPENSE')
-      .reduce((sum, tx) => sum + tx.amount, 0);
-
-    return {
-      period: `${daysAhead} días`,
-      incomes,
-      expenses,
-      netFlow: incomes - expenses,
-      balance: totalBankBalance + incomes - expenses,
-    };
+  /**
+   * Formatea el nombre del mes en español
+   */
+  const getMonthName = (date: Date): string => {
+    const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    return months[date.getMonth()];
   };
 
-  const projection30d = calculateProjection(30);
-  const projection60d = calculateProjection(60);
-  const projection90d = calculateProjection(90);
+  /**
+   * Formatea una fecha corta (día Mes)
+   */
+  const formatShortDate = (date: Date): string => {
+    return `${date.getDate()} ${getMonthName(date).substring(0, 3)}`;
+  };
+
+  /**
+   * Calcula los buckets de previsión con saldo acumulativo
+   * El saldo de cada período arrastra el resultado del período anterior
+   */
+  const calculateForecastBuckets = (): ForecastBucket[] => {
+    const filteredTxs = getFilteredByScenario(pendingTransactions);
+    
+    // Definición de los períodos (en días desde hoy)
+    const periodDefinitions = [
+      { label: 'Próximos 30 días', startDay: 0, endDay: 30 },
+      { label: 'Días 31-60', startDay: 31, endDay: 60 },
+      { label: 'Días 61-90', startDay: 61, endDay: 90 },
+    ];
+    
+    let runningBalance = totalBankBalance; // Empezamos con el saldo actual en bancos
+    
+    return periodDefinitions.map(period => {
+      // Calcular fechas del período
+      const startDate = new Date(today);
+      startDate.setDate(startDate.getDate() + period.startDay);
+      
+      const endDate = new Date(today);
+      endDate.setDate(endDate.getDate() + period.endDay);
+      endDate.setHours(23, 59, 59, 999); // Fin del día
+      
+      // Generar rango de fechas legible (ej: "1 Dic - 31 Dic 2025")
+      const dateRange = `${formatShortDate(startDate)} - ${formatShortDate(endDate)} ${endDate.getFullYear()}`;
+      
+      // Generar nombres de meses (ej: "Diciembre" o "Diciembre-Enero")
+      const startMonth = getMonthName(startDate);
+      const endMonth = getMonthName(endDate);
+      const monthNames = startMonth === endMonth 
+        ? startMonth 
+        : `${startMonth}-${endMonth}`;
+      
+      // Filtrar transacciones SOLO de este período específico
+      const txsInPeriod = filteredTxs.filter(tx => {
+        const dueDate = new Date(tx.dueDate);
+        return dueDate >= startDate && dueDate <= endDate;
+      });
+      
+      // Calcular cobros y pagos del período
+      const incomes = txsInPeriod
+        .filter(tx => tx.type === 'INCOME')
+        .reduce((sum, tx) => sum + tx.amount, 0);
+      
+      const expenses = txsInPeriod
+        .filter(tx => tx.type === 'EXPENSE')
+        .reduce((sum, tx) => sum + tx.amount, 0);
+      
+      const netFlow = incomes - expenses;
+      
+      // Acumular al saldo corriente (ARRASTRA del período anterior)
+      runningBalance = runningBalance + netFlow;
+      
+      return {
+        label: period.label,
+        dateRange,
+        monthNames,
+        startDay: period.startDay,
+        endDay: period.endDay,
+        incomes,
+        expenses,
+        netFlow,
+        cumulativeBalance: runningBalance,
+      };
+    });
+  };
+
+  // Calcular los 3 buckets de previsión
+  const forecastBuckets = calculateForecastBuckets();
+  const [bucket30d, bucket60d, bucket90d] = forecastBuckets;
 
   // Calcular runway (días que puedo sobrevivir con el saldo actual)
   const monthlyExpenses = pendingTransactions
@@ -160,7 +267,7 @@ export default function DashboardPage() {
   // Alertas
   const alerts: { id: string; type: string; message: string; severity: string }[] = [];
   
-  if (projection30d.balance < 0) {
+  if (bucket30d && bucket30d.cumulativeBalance < 0) {
     alerts.push({ id: '1', type: 'CRITICAL', message: 'Saldo proyectado negativo en 30 días', severity: 'HIGH' });
   }
   if (runway < 30) {
@@ -173,9 +280,9 @@ export default function DashboardPage() {
     alerts.push({ id: '3', type: 'STALE', message: 'Hay cuentas sin actualizar hace más de 48h', severity: 'MEDIUM' });
   }
 
-  const getRiskLevel = (projection: ProjectionData) => {
-    if (projection.balance < 0) return 'HIGH';
-    if (projection.balance < totalBankBalance * 0.3) return 'MEDIUM';
+  const getRiskLevel = (bucket: ForecastBucket) => {
+    if (bucket.cumulativeBalance < 0) return 'HIGH';
+    if (bucket.cumulativeBalance < totalBankBalance * 0.3) return 'MEDIUM';
     return 'LOW';
   };
 
@@ -324,121 +431,132 @@ export default function DashboardPage() {
           <Card className="border-l-4 border-l-blue-500">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Próximos 30 días</h3>
+                <div>
+                  <h3 className="font-semibold text-gray-900">{bucket30d?.monthNames || 'Próximos 30 días'}</h3>
+                  <p className="text-xs text-gray-500">{bucket30d?.dateRange}</p>
+                </div>
                 <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  getRiskLevel(projection30d) === 'LOW' ? 'bg-green-100 text-green-800' :
-                  getRiskLevel(projection30d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
+                  bucket30d && getRiskLevel(bucket30d) === 'LOW' ? 'bg-green-100 text-green-800' :
+                  bucket30d && getRiskLevel(bucket30d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
                   'bg-red-100 text-red-800'
                 }`}>
-                  Riesgo {getRiskLevel(projection30d) === 'LOW' ? 'Bajo' : 
-                          getRiskLevel(projection30d) === 'MEDIUM' ? 'Medio' : 'Alto'}
+                  Riesgo {bucket30d && getRiskLevel(bucket30d) === 'LOW' ? 'Bajo' : 
+                          bucket30d && getRiskLevel(bucket30d) === 'MEDIUM' ? 'Medio' : 'Alto'}
                 </span>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Cobros previstos</span>
-                  <span className="font-semibold text-green-600">+{formatCurrency(projection30d.incomes)}</span>
+                  <span className="font-semibold text-green-600">+{formatCurrency(bucket30d?.incomes || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Pagos previstos</span>
-                  <span className="font-semibold text-red-600">-{formatCurrency(projection30d.expenses)}</span>
+                  <span className="font-semibold text-red-600">-{formatCurrency(bucket30d?.expenses || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Flujo neto</span>
-                  <span className={`font-medium ${projection30d.netFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {projection30d.netFlow >= 0 ? '+' : ''}{formatCurrency(projection30d.netFlow)}
+                  <span className="text-gray-500">Flujo neto período</span>
+                  <span className={`font-medium ${(bucket30d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(bucket30d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket30d?.netFlow || 0)}
                   </span>
                 </div>
               </div>
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Saldo estimado</span>
-                  <span className={`text-xl font-bold ${projection30d.balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                    {formatCurrency(projection30d.balance)}
+                  <span className="font-medium text-gray-700">Saldo acumulado</span>
+                  <span className={`text-xl font-bold ${(bucket30d?.cumulativeBalance || 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                    {formatCurrency(bucket30d?.cumulativeBalance || 0)}
                   </span>
                 </div>
               </div>
             </div>
           </Card>
 
-          {/* Proyección 60 días */}
+          {/* Proyección 60 días (días 31-60) */}
           <Card className="border-l-4 border-l-purple-500">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Próximos 60 días</h3>
+                <div>
+                  <h3 className="font-semibold text-gray-900">{bucket60d?.monthNames || 'Días 31-60'}</h3>
+                  <p className="text-xs text-gray-500">{bucket60d?.dateRange}</p>
+                </div>
                 <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  getRiskLevel(projection60d) === 'LOW' ? 'bg-green-100 text-green-800' :
-                  getRiskLevel(projection60d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
+                  bucket60d && getRiskLevel(bucket60d) === 'LOW' ? 'bg-green-100 text-green-800' :
+                  bucket60d && getRiskLevel(bucket60d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
                   'bg-red-100 text-red-800'
                 }`}>
-                  Riesgo {getRiskLevel(projection60d) === 'LOW' ? 'Bajo' : 
-                          getRiskLevel(projection60d) === 'MEDIUM' ? 'Medio' : 'Alto'}
+                  Riesgo {bucket60d && getRiskLevel(bucket60d) === 'LOW' ? 'Bajo' : 
+                          bucket60d && getRiskLevel(bucket60d) === 'MEDIUM' ? 'Medio' : 'Alto'}
                 </span>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Cobros previstos</span>
-                  <span className="font-semibold text-green-600">+{formatCurrency(projection60d.incomes)}</span>
+                  <span className="font-semibold text-green-600">+{formatCurrency(bucket60d?.incomes || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Pagos previstos</span>
-                  <span className="font-semibold text-red-600">-{formatCurrency(projection60d.expenses)}</span>
+                  <span className="font-semibold text-red-600">-{formatCurrency(bucket60d?.expenses || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Flujo neto</span>
-                  <span className={`font-medium ${projection60d.netFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {projection60d.netFlow >= 0 ? '+' : ''}{formatCurrency(projection60d.netFlow)}
+                  <span className="text-gray-500">Flujo neto período</span>
+                  <span className={`font-medium ${(bucket60d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(bucket60d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket60d?.netFlow || 0)}
                   </span>
                 </div>
               </div>
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Saldo estimado</span>
-                  <span className={`text-xl font-bold ${projection60d.balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                    {formatCurrency(projection60d.balance)}
+                  <span className="font-medium text-gray-700">Saldo acumulado</span>
+                  <span className={`text-xl font-bold ${(bucket60d?.cumulativeBalance || 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                    {formatCurrency(bucket60d?.cumulativeBalance || 0)}
                   </span>
                 </div>
+                <p className="text-xs text-gray-400 mt-1">Arrastra saldo de período anterior</p>
               </div>
             </div>
           </Card>
 
-          {/* Proyección 90 días */}
+          {/* Proyección 90 días (días 61-90) */}
           <Card className="border-l-4 border-l-orange-500">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Próximos 90 días</h3>
+                <div>
+                  <h3 className="font-semibold text-gray-900">{bucket90d?.monthNames || 'Días 61-90'}</h3>
+                  <p className="text-xs text-gray-500">{bucket90d?.dateRange}</p>
+                </div>
                 <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  getRiskLevel(projection90d) === 'LOW' ? 'bg-green-100 text-green-800' :
-                  getRiskLevel(projection90d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
+                  bucket90d && getRiskLevel(bucket90d) === 'LOW' ? 'bg-green-100 text-green-800' :
+                  bucket90d && getRiskLevel(bucket90d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
                   'bg-red-100 text-red-800'
                 }`}>
-                  Riesgo {getRiskLevel(projection90d) === 'LOW' ? 'Bajo' : 
-                          getRiskLevel(projection90d) === 'MEDIUM' ? 'Medio' : 'Alto'}
+                  Riesgo {bucket90d && getRiskLevel(bucket90d) === 'LOW' ? 'Bajo' : 
+                          bucket90d && getRiskLevel(bucket90d) === 'MEDIUM' ? 'Medio' : 'Alto'}
                 </span>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Cobros previstos</span>
-                  <span className="font-semibold text-green-600">+{formatCurrency(projection90d.incomes)}</span>
+                  <span className="font-semibold text-green-600">+{formatCurrency(bucket90d?.incomes || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Pagos previstos</span>
-                  <span className="font-semibold text-red-600">-{formatCurrency(projection90d.expenses)}</span>
+                  <span className="font-semibold text-red-600">-{formatCurrency(bucket90d?.expenses || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Flujo neto</span>
-                  <span className={`font-medium ${projection90d.netFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {projection90d.netFlow >= 0 ? '+' : ''}{formatCurrency(projection90d.netFlow)}
+                  <span className="text-gray-500">Flujo neto período</span>
+                  <span className={`font-medium ${(bucket90d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(bucket90d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket90d?.netFlow || 0)}
                   </span>
                 </div>
               </div>
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Saldo estimado</span>
-                  <span className={`text-xl font-bold ${projection90d.balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                    {formatCurrency(projection90d.balance)}
+                  <span className="font-medium text-gray-700">Saldo acumulado</span>
+                  <span className={`text-xl font-bold ${(bucket90d?.cumulativeBalance || 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                    {formatCurrency(bucket90d?.cumulativeBalance || 0)}
                   </span>
                 </div>
+                <p className="text-xs text-gray-400 mt-1">Arrastra saldo de período anterior</p>
               </div>
             </div>
           </Card>

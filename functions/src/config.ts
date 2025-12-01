@@ -77,17 +77,45 @@ export interface DailySnapshot {
   runwayDays: number;
 }
 
+export type RecurrenceFrequency = 'NONE' | 'DAILY' | 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type RecurrenceStatus = 'ACTIVE' | 'PAUSED' | 'ENDED';
+export type CertaintyLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+
 export interface Recurrence {
   id: string;
+  userId: string;
   companyId: string;
-  accountId: string;
+  accountId?: string;
   type: 'INCOME' | 'EXPENSE';
-  amount: number;
+  name: string;                        // Nombre/descripción de la recurrencia
+  baseAmount: number;                  // Importe base (antes era 'amount')
   category: string;
-  description: string;
-  dayOfMonth: number;
-  nextOccurrence: admin.firestore.Timestamp;
-  active: boolean;
+  thirdPartyId?: string;
+  thirdPartyName?: string;
+  certainty: CertaintyLevel;
+  notes?: string;
+  // Configuración de recurrencia
+  frequency: RecurrenceFrequency;
+  dayOfMonth?: number;                 // Para MONTHLY (1-31)
+  dayOfWeek?: number;                  // Para WEEKLY (0=Dom, 1=Lun, etc.)
+  startDate: admin.firestore.Timestamp;  // Fecha de inicio
+  endDate?: admin.firestore.Timestamp | null;  // Fecha fin (null = indefinida)
+  // Control de generación
+  generateMonthsAhead: number;         // Meses a generar por adelantado (default: 6)
+  lastGeneratedDate?: admin.firestore.Timestamp;  // Última fecha hasta la que se generaron instancias
+  nextOccurrenceDate?: admin.firestore.Timestamp; // Próxima fecha a generar
+  // Estado
+  status: RecurrenceStatus;
+  // Metadata
+  createdBy: string;
+  lastUpdatedBy?: string;
+  createdAt?: admin.firestore.Timestamp;
+  updatedAt?: admin.firestore.Timestamp;
+  // Campos legacy (para compatibilidad)
+  active?: boolean;                    // Deprecado, usar status
+  amount?: number;                     // Deprecado, usar baseAmount
+  description?: string;                // Deprecado, usar name
+  nextOccurrence?: admin.firestore.Timestamp; // Deprecado, usar nextOccurrenceDate
 }
 
 // Funciones de utilidad

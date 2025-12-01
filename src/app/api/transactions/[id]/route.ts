@@ -41,6 +41,10 @@ function mapToTransaction(id: string, data: FirebaseFirestore.DocumentData): Tra
     recurrence: data.recurrence || 'NONE',
     certainty: data.certainty || 'HIGH',
     recurrenceId: data.recurrenceId || null,
+    // Campos de instancia de recurrencia
+    isRecurrenceInstance: data.isRecurrenceInstance || false,
+    instanceDate: data.instanceDate || undefined,
+    overriddenFromRecurrence: data.overriddenFromRecurrence || false,
     createdBy: data.createdBy || '',
     lastUpdatedBy: data.lastUpdatedBy || '',
     createdAt: data.createdAt?.toDate?.() || new Date(),

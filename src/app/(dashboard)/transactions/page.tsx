@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card, Input, ThirdPartyAutocomplete } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { transactionsApi, companiesApi } from '@/lib/api-client';
@@ -32,6 +32,7 @@ interface TransactionFormData {
   type: TransactionType;
   description: string;
   thirdPartyName: string;
+  thirdPartyId?: string;
   category: string;
   amount: string;
   dueDate: string;
@@ -56,6 +57,7 @@ export default function TransactionsPage() {
     type: 'EXPENSE',
     description: '',
     thirdPartyName: '',
+    thirdPartyId: undefined,
     category: '',
     amount: '',
     dueDate: '',
@@ -80,10 +82,7 @@ export default function TransactionsPage() {
         setCompanies(companiesData.map((c: Company) => ({ id: c.id, name: c.name })));
       } catch (error: unknown) {
         console.error('Error cargando datos:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-        if (!errorMessage.includes('index') && !errorMessage.includes('permission')) {
-          toast.error('Error al cargar los movimientos');
-        }
+        toast.error('Error al cargar los movimientos');
       } finally {
         setLoading(false);
       }
@@ -150,13 +149,19 @@ export default function TransactionsPage() {
   };
 
   const handleEdit = (tx: Transaction) => {
+    // Convertir dueDate a string ISO si viene como Date o string
+    const dueDateStr = tx.dueDate instanceof Date 
+      ? tx.dueDate.toISOString().split('T')[0]
+      : new Date(tx.dueDate).toISOString().split('T')[0];
+    
     setFormData({
       type: tx.type,
       description: tx.description || '',
       thirdPartyName: tx.thirdPartyName || '',
+      thirdPartyId: tx.thirdPartyId,
       category: tx.category,
       amount: tx.amount.toString(),
-      dueDate: tx.dueDate.toISOString().split('T')[0],
+      dueDate: dueDateStr,
       companyId: tx.companyId,
       notes: tx.notes || '',
       recurrence: tx.recurrence || 'NONE',
@@ -176,6 +181,7 @@ export default function TransactionsPage() {
           type: formData.type,
           description: formData.description,
           thirdPartyName: formData.thirdPartyName,
+          thirdPartyId: formData.thirdPartyId,
           category: formData.category,
           amount: parseFloat(formData.amount),
           dueDate: new Date(formData.dueDate),
@@ -198,6 +204,7 @@ export default function TransactionsPage() {
           category: formData.category,
           description: formData.description,
           thirdPartyName: formData.thirdPartyName,
+          thirdPartyId: formData.thirdPartyId,
           notes: formData.notes,
           recurrence: formData.recurrence,
           certainty: formData.certainty,
@@ -213,6 +220,7 @@ export default function TransactionsPage() {
         type: 'EXPENSE',
         description: '',
         thirdPartyName: '',
+        thirdPartyId: undefined,
         category: '',
         amount: '',
         dueDate: '',
@@ -455,6 +463,7 @@ export default function TransactionsPage() {
                     type: 'EXPENSE',
                     description: '',
                     thirdPartyName: '',
+                    thirdPartyId: undefined,
                     category: '',
                     amount: '',
                     dueDate: '',
@@ -504,10 +513,12 @@ export default function TransactionsPage() {
                 placeholder="Nóminas Diciembre 2024"
                 required
               />
-              <Input
-                label="Tercero"
+              <ThirdPartyAutocomplete
                 value={formData.thirdPartyName}
-                onChange={(e) => setFormData({ ...formData, thirdPartyName: e.target.value })}
+                thirdPartyId={formData.thirdPartyId}
+                onChange={(displayName, thirdPartyId) => 
+                  setFormData({ ...formData, thirdPartyName: displayName, thirdPartyId })
+                }
                 placeholder="Nombre del cliente/proveedor"
               />
               <div>

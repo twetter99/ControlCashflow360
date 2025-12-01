@@ -7,10 +7,11 @@ import {
   withErrorHandling,
   parseAndValidate,
 } from '@/lib/api-utils';
-import { Transaction } from '@/types';
+import { Transaction, RecurrenceFrequency, Recurrence, RecurrenceStatus } from '@/types';
 import { Timestamp } from 'firebase-admin/firestore';
 import { CreateTransactionSchema } from '@/lib/validations/schemas';
 import { logCreate } from '@/lib/audit-logger';
+import { generateTransactionsFromRecurrence, calculateNextOccurrenceDate } from '@/lib/recurrence-generator';
 
 const COLLECTION = 'transactions';
 
@@ -36,6 +37,10 @@ function mapToTransaction(id: string, data: FirebaseFirestore.DocumentData): Tra
     recurrence: data.recurrence || 'NONE',
     certainty: data.certainty || 'HIGH',
     recurrenceId: data.recurrenceId || null,
+    // Campos de instancia de recurrencia
+    isRecurrenceInstance: data.isRecurrenceInstance || false,
+    instanceDate: data.instanceDate || undefined,
+    overriddenFromRecurrence: data.overriddenFromRecurrence || false,
     createdBy: data.createdBy || '',
     lastUpdatedBy: data.lastUpdatedBy || '',
     createdAt: data.createdAt?.toDate?.() || new Date(),
@@ -133,6 +138,57 @@ export async function POST(request: NextRequest) {
     const dueDate = body.dueDate instanceof Date ? body.dueDate : new Date(body.dueDate);
     const paidDate = body.paidDate ? (body.paidDate instanceof Date ? body.paidDate : new Date(body.paidDate)) : null;
     
+    // Determinar si es una transacción recurrente (no NONE y no es ya una instancia)
+    const isNewRecurrence = body.recurrence && 
+                            body.recurrence !== 'NONE' && 
+                            !body.isRecurrenceInstance && 
+                            !body.recurrenceId;
+    
+    let recurrenceId: string | null = body.recurrenceId || null;
+    let generatedTransactions: string[] = [];
+
+    // Si es recurrente, primero crear la recurrencia
+    if (isNewRecurrence) {
+      // Extraer el día del mes de la fecha de vencimiento
+      const dayOfMonth = dueDate.getDate();
+      const dayOfWeek = dueDate.getDay();
+
+      const recurrenceData = {
+        userId,
+        companyId: body.companyId,
+        accountId: body.accountId || null,
+        type: body.type,
+        name: body.description || `${body.category} - ${body.type === 'INCOME' ? 'Ingreso' : 'Gasto'}`,
+        baseAmount: body.amount,
+        category: body.category,
+        thirdPartyId: body.thirdPartyId || null,
+        thirdPartyName: body.thirdPartyName || '',
+        certainty: body.certainty || 'HIGH',
+        notes: body.notes || '',
+        frequency: body.recurrence as RecurrenceFrequency,
+        dayOfMonth: dayOfMonth,
+        dayOfWeek: dayOfWeek,
+        startDate: Timestamp.fromDate(dueDate),
+        endDate: null, // Indefinida por defecto
+        generateMonthsAhead: 6,
+        lastGeneratedDate: null,
+        nextOccurrenceDate: null,
+        status: 'ACTIVE',
+        createdBy: userId,
+        lastUpdatedBy: userId,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const recurrenceRef = await db.collection('recurrences').add(recurrenceData);
+      recurrenceId = recurrenceRef.id;
+
+      console.log(`[Transactions API] Creada recurrencia ${recurrenceId} para transacción recurrente`);
+    }
+
+    // Crear la transacción principal
+    const instanceDate = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}`;
+    
     const transactionData = {
       companyId: body.companyId,
       accountId: body.accountId || null,
@@ -148,7 +204,11 @@ export async function POST(request: NextRequest) {
       notes: body.notes,
       recurrence: body.recurrence,
       certainty: body.certainty,
-      recurrenceId: body.recurrenceId || null,
+      recurrenceId: recurrenceId,
+      // Si es recurrente, marcarla como instancia
+      isRecurrenceInstance: isNewRecurrence ? true : (body.isRecurrenceInstance || false),
+      instanceDate: isNewRecurrence ? instanceDate : (body.instanceDate || null),
+      overriddenFromRecurrence: body.overriddenFromRecurrence || false,
       createdBy: userId,
       lastUpdatedBy: userId,
       userId,
@@ -157,6 +217,61 @@ export async function POST(request: NextRequest) {
     };
 
     const docRef = await db.collection(COLLECTION).add(transactionData);
+
+    // Si es recurrente, generar las transacciones futuras
+    if (isNewRecurrence && recurrenceId) {
+      try {
+        // Obtener la recurrencia recién creada
+        const recurrenceDoc = await db.collection('recurrences').doc(recurrenceId).get();
+        const recurrenceData = recurrenceDoc.data()!;
+        
+        // Calcular la siguiente fecha después de la transacción principal
+        const nextStartDate = calculateNextOccurrenceDate(
+          dueDate,
+          recurrenceData.frequency,
+          recurrenceData.dayOfMonth,
+          recurrenceData.dayOfWeek
+        );
+        
+        const recurrence: Recurrence = {
+          id: recurrenceId,
+          userId,
+          companyId: recurrenceData.companyId,
+          accountId: recurrenceData.accountId,
+          type: recurrenceData.type,
+          name: recurrenceData.name,
+          baseAmount: recurrenceData.baseAmount,
+          category: recurrenceData.category,
+          thirdPartyId: recurrenceData.thirdPartyId,
+          thirdPartyName: recurrenceData.thirdPartyName,
+          certainty: recurrenceData.certainty,
+          notes: recurrenceData.notes,
+          frequency: recurrenceData.frequency,
+          dayOfMonth: recurrenceData.dayOfMonth,
+          dayOfWeek: recurrenceData.dayOfWeek,
+          startDate: nextStartDate, // Empezar desde la SIGUIENTE fecha
+          endDate: recurrenceData.endDate?.toDate() || null,
+          generateMonthsAhead: recurrenceData.generateMonthsAhead,
+          lastGeneratedDate: undefined, // No establecer para que genere desde startDate
+          status: 'ACTIVE' as RecurrenceStatus,
+          createdBy: recurrenceData.createdBy,
+        };
+
+        // Generar transacciones futuras (la primera ya la creamos arriba)
+        const result = await generateTransactionsFromRecurrence(recurrence, userId, {
+          fromDate: new Date(), // Desde hoy
+          monthsAhead: 6,
+          skipExisting: true,
+        });
+
+        generatedTransactions = result.transactionIds;
+        console.log(`[Transactions API] Generadas ${result.generatedCount} transacciones futuras para recurrencia ${recurrenceId}`);
+
+      } catch (genError) {
+        console.error(`[Transactions API] Error generando transacciones futuras:`, genError);
+        // No fallar la creación principal, solo logear el error
+      }
+    }
 
     // Si está pagada y tiene cuenta, actualizar balance
     if (transactionData.status === 'PAID' && transactionData.accountId) {
@@ -180,14 +295,25 @@ export async function POST(request: NextRequest) {
       description: body.description,
       category: body.category,
       thirdPartyName: body.thirdPartyName,
+      isRecurrent: isNewRecurrence,
+      recurrenceId: recurrenceId,
+      futureTransactionsGenerated: generatedTransactions.length,
     }, { entityName: body.description || `${body.type} - ${body.amount}` });
 
-    return successResponse(mapToTransaction(docRef.id, {
+    const response = mapToTransaction(docRef.id, {
       ...transactionData,
       dueDate: { toDate: () => dueDate },
       paidDate: paidDate ? { toDate: () => paidDate } : null,
       createdAt: { toDate: () => now.toDate() },
       updatedAt: { toDate: () => now.toDate() },
-    }), 201);
+    });
+
+    // Añadir info extra sobre recurrencia si aplica
+    return successResponse({
+      ...response,
+      _recurrenceCreated: isNewRecurrence,
+      _recurrenceId: recurrenceId,
+      _futureTransactionsGenerated: generatedTransactions.length,
+    }, 201);
   });
 }

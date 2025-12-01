@@ -148,6 +148,10 @@ export const CreateTransactionSchema = z.object({
   recurrence: RecurrenceFrequencySchema.default('NONE'),
   certainty: CertaintyLevelSchema.default('HIGH'),
   recurrenceId: z.string().nullable().optional(),
+  // Nuevos campos para instancias de recurrencia
+  isRecurrenceInstance: z.boolean().optional().default(false),
+  instanceDate: z.string().optional(),
+  overriddenFromRecurrence: z.boolean().optional().default(false),
   createdBy: z.string().optional(),
 });
 
@@ -326,6 +330,139 @@ export const CreditCardBalanceUpdateSchema = z.object({
 });
 
 // ============================================
+// RECURRENCE SCHEMAS (Transacciones Recurrentes)
+// ============================================
+
+export const RecurrenceStatusSchema = z.enum(['ACTIVE', 'PAUSED', 'ENDED']);
+
+export const CreateRecurrenceSchema = z.object({
+  companyId: z.string()
+    .min(1, 'El ID de empresa es requerido'),
+  type: TransactionTypeSchema,
+  name: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre es requerido').max(100, 'El nombre no puede exceder 100 caracteres')),
+  baseAmount: z.number()
+    .positive('El monto debe ser mayor a 0')
+    .finite('El monto debe ser un número válido'),
+  category: sanitizedString(50)
+    .pipe(z.string().max(50, 'La categoría no puede exceder 50 caracteres'))
+    .optional()
+    .default(''),
+  thirdPartyId: z.string().optional(),
+  thirdPartyName: sanitizedString(100)
+    .pipe(z.string().max(100, 'El nombre del tercero no puede exceder 100 caracteres'))
+    .optional()
+    .default(''),
+  accountId: z.string().optional(),
+  certainty: CertaintyLevelSchema.default('HIGH'),
+  notes: sanitizedString(1000)
+    .pipe(z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres'))
+    .optional()
+    .default(''),
+  // Configuración de frecuencia
+  frequency: RecurrenceFrequencySchema.refine(val => val !== 'NONE', {
+    message: 'La frecuencia no puede ser NONE para una recurrencia',
+  }),
+  dayOfMonth: z.number()
+    .int('El día del mes debe ser un número entero')
+    .min(1, 'El día del mes debe ser entre 1 y 31')
+    .max(31, 'El día del mes debe ser entre 1 y 31')
+    .optional(),
+  dayOfWeek: z.number()
+    .int('El día de la semana debe ser un número entero')
+    .min(0, 'El día de la semana debe ser entre 0 (Domingo) y 6 (Sábado)')
+    .max(6, 'El día de la semana debe ser entre 0 (Domingo) y 6 (Sábado)')
+    .optional(),
+  startDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).refine(date => !isNaN(date.getTime()), {
+    message: 'La fecha de inicio no es válida',
+  }),
+  endDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+    z.null(),
+  ]).optional().nullable(),
+  generateMonthsAhead: z.number()
+    .int('Debe ser un número entero')
+    .min(1, 'Debe generar al menos 1 mes')
+    .max(24, 'No se pueden generar más de 24 meses')
+    .default(6),
+  status: RecurrenceStatusSchema.default('ACTIVE'),
+}).refine(data => {
+  // Si es MONTHLY, debe tener dayOfMonth
+  if (['MONTHLY', 'QUARTERLY', 'YEARLY'].includes(data.frequency) && !data.dayOfMonth) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Para frecuencias mensuales/trimestrales/anuales, debe especificar el día del mes',
+  path: ['dayOfMonth'],
+}).refine(data => {
+  // Si es WEEKLY o BIWEEKLY, debe tener dayOfWeek
+  if (['WEEKLY', 'BIWEEKLY'].includes(data.frequency) && data.dayOfWeek === undefined) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Para frecuencias semanales, debe especificar el día de la semana',
+  path: ['dayOfWeek'],
+}).refine(data => {
+  // Si tiene endDate, debe ser posterior a startDate
+  if (data.endDate) {
+    const startDate = data.startDate instanceof Date ? data.startDate : new Date(data.startDate);
+    const endDate = data.endDate instanceof Date ? data.endDate : new Date(data.endDate);
+    return endDate > startDate;
+  }
+  return true;
+}, {
+  message: 'La fecha de fin debe ser posterior a la fecha de inicio',
+  path: ['endDate'],
+});
+
+export const UpdateRecurrenceSchema = z.object({
+  companyId: z.string().min(1).optional(),
+  type: TransactionTypeSchema.optional(),
+  name: sanitizedString(100)
+    .pipe(z.string().min(1).max(100))
+    .optional(),
+  baseAmount: z.number().positive().finite().optional(),
+  category: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  thirdPartyId: z.string().optional().nullable(),
+  thirdPartyName: sanitizedString(100).pipe(z.string().max(100)).optional(),
+  accountId: z.string().optional().nullable(),
+  certainty: CertaintyLevelSchema.optional(),
+  notes: sanitizedString(1000).pipe(z.string().max(1000)).optional(),
+  frequency: RecurrenceFrequencySchema.optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional().nullable(),
+  dayOfWeek: z.number().int().min(0).max(6).optional().nullable(),
+  startDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).optional(),
+  endDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+    z.null(),
+  ]).optional().nullable(),
+  generateMonthsAhead: z.number().int().min(1).max(24).optional(),
+  status: RecurrenceStatusSchema.optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+// Schema para regenerar ocurrencias de una recurrencia
+export const RegenerateOccurrencesSchema = z.object({
+  recurrenceId: z.string().min(1, 'El ID de recurrencia es requerido'),
+  fromDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).optional(),
+  monthsAhead: z.number().int().min(1).max(24).optional(),
+});
+
+// ============================================
 // TIPOS INFERIDOS DE ZOD
 // ============================================
 
@@ -342,6 +479,9 @@ export type UpdateCreditLineInput = z.infer<typeof UpdateCreditLineSchema>;
 export type CreateCreditCardInput = z.infer<typeof CreateCreditCardSchema>;
 export type UpdateCreditCardInput = z.infer<typeof UpdateCreditCardSchema>;
 export type CreditCardBalanceUpdateInput = z.infer<typeof CreditCardBalanceUpdateSchema>;
+export type CreateRecurrenceInput = z.infer<typeof CreateRecurrenceSchema>;
+export type UpdateRecurrenceInput = z.infer<typeof UpdateRecurrenceSchema>;
+export type RegenerateOccurrencesInput = z.infer<typeof RegenerateOccurrencesSchema>;
 
 // ============================================
 // UTILIDAD PARA VALIDAR Y FORMATEAR ERRORES

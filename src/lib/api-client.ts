@@ -420,3 +420,254 @@ export const creditCardsApi = {
     });
   },
 };
+
+// ============================================
+// RECURRENCES API (Transacciones Recurrentes)
+// ============================================
+
+import { 
+  Recurrence,
+  OccurrenceGenerationResult,
+} from '@/types';
+import {
+  CreateRecurrenceInput,
+  UpdateRecurrenceInput,
+} from '@/lib/validations/schemas';
+
+interface RecurrenceFilters {
+  companyId?: string;
+  status?: 'ACTIVE' | 'PAUSED' | 'ENDED';
+  type?: 'INCOME' | 'EXPENSE';
+}
+
+interface RecurrenceCreateResponse {
+  recurrence: Recurrence;
+  generatedTransactions: number;
+  transactionIds: string[];
+}
+
+interface RecurrenceUpdateResponse {
+  recurrence: Recurrence;
+  regenerated: boolean;
+  deletedTransactions: number;
+  generatedTransactions: number;
+}
+
+interface RecurrenceDeleteResponse {
+  deleted: boolean;
+  deletedTransactionsCount: number;
+}
+
+interface RegenerateSummary {
+  recurrencesProcessed: number;
+  totalGenerated: number;
+  totalSkipped: number;
+  details: Array<{
+    recurrenceId: string;
+    generated: number;
+    skipped: number;
+  }>;
+}
+
+export const recurrencesApi = {
+  /**
+   * Obtener todas las recurrencias del usuario
+   */
+  async getAll(filters?: RecurrenceFilters): Promise<Recurrence[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    const queryString = params.toString();
+    const url = queryString 
+      ? `/api/recurrences?${queryString}`
+      : '/api/recurrences';
+    return apiRequest<Recurrence[]>(url);
+  },
+
+  /**
+   * Obtener recurrencia por ID
+   */
+  async getById(id: string): Promise<Recurrence> {
+    return apiRequest<Recurrence>(`/api/recurrences/${id}`);
+  },
+
+  /**
+   * Crear nueva recurrencia (genera transacciones automáticamente)
+   */
+  async create(data: CreateRecurrenceInput): Promise<RecurrenceCreateResponse> {
+    return apiRequest<RecurrenceCreateResponse>('/api/recurrences', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar recurrencia (puede regenerar transacciones)
+   */
+  async update(id: string, data: UpdateRecurrenceInput): Promise<RecurrenceUpdateResponse> {
+    return apiRequest<RecurrenceUpdateResponse>(`/api/recurrences/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Eliminar recurrencia
+   * @param deleteTransactions - Si true, elimina transacciones asociadas. Si false, las desvincula.
+   * @param deletePendingOnly - Si true (default), solo elimina transacciones pendientes.
+   */
+  async delete(
+    id: string, 
+    deleteTransactions = false,
+    deletePendingOnly = true
+  ): Promise<RecurrenceDeleteResponse> {
+    const params = new URLSearchParams();
+    params.append('deleteTransactions', String(deleteTransactions));
+    params.append('deletePendingOnly', String(deletePendingOnly));
+    
+    return apiRequest<RecurrenceDeleteResponse>(
+      `/api/recurrences/${id}?${params.toString()}`, 
+      { method: 'DELETE' }
+    );
+  },
+
+  /**
+   * Regenerar transacciones para todas las recurrencias activas
+   * Útil para llamar al cargar el dashboard
+   */
+  async regenerate(companyId?: string, monthsAhead?: number): Promise<RegenerateSummary> {
+    const params = new URLSearchParams();
+    if (companyId) params.append('companyId', companyId);
+    if (monthsAhead) params.append('monthsAhead', String(monthsAhead));
+    
+    const queryString = params.toString();
+    const url = queryString 
+      ? `/api/recurrences/regenerate?${queryString}`
+      : '/api/recurrences/regenerate';
+    
+    return apiRequest<RegenerateSummary>(url, { method: 'POST' });
+  },
+
+  /**
+   * Pausar una recurrencia (deja de generar nuevas transacciones)
+   */
+  async pause(id: string): Promise<RecurrenceUpdateResponse> {
+    return this.update(id, { status: 'PAUSED' });
+  },
+
+  /**
+   * Reactivar una recurrencia pausada
+   */
+  async resume(id: string): Promise<RecurrenceUpdateResponse> {
+    return this.update(id, { status: 'ACTIVE' });
+  },
+
+  /**
+   * Finalizar una recurrencia (status = ENDED)
+   */
+  async end(id: string): Promise<RecurrenceUpdateResponse> {
+    return this.update(id, { status: 'ENDED' });
+  },
+};
+
+// ============================================
+// THIRD PARTIES API (Terceros)
+// ============================================
+
+import { 
+  ThirdParty, 
+  CreateThirdPartyInput, 
+  UpdateThirdPartyInput,
+  ThirdPartySearchResult,
+  ThirdPartyType 
+} from '@/types';
+
+interface ThirdPartyFilters {
+  search?: string;
+  type?: ThirdPartyType;
+  includeInactive?: boolean;
+}
+
+export const thirdPartiesApi = {
+  /**
+   * Obtener todos los terceros del usuario
+   */
+  async getAll(filters?: ThirdPartyFilters): Promise<ThirdParty[]> {
+    const params = new URLSearchParams();
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.type) params.append('type', filters.type);
+    if (filters?.includeInactive) params.append('includeInactive', 'true');
+    
+    const queryString = params.toString();
+    const url = queryString ? `/api/third-parties?${queryString}` : '/api/third-parties';
+    return apiRequest<ThirdParty[]>(url);
+  },
+
+  /**
+   * Buscar terceros por texto (para autocompletado)
+   */
+  async search(searchText: string): Promise<ThirdParty[]> {
+    if (!searchText || searchText.trim().length < 2) return [];
+    return this.getAll({ search: searchText.trim() });
+  },
+
+  /**
+   * Verificar duplicados potenciales
+   */
+  async checkDuplicates(name: string): Promise<ThirdPartySearchResult[]> {
+    if (!name || name.trim().length < 2) return [];
+    const result = await apiRequest<{ duplicates: ThirdPartySearchResult[] }>(
+      `/api/third-parties?checkDuplicates=${encodeURIComponent(name.trim())}`
+    );
+    return result.duplicates;
+  },
+
+  /**
+   * Obtener tercero por ID
+   */
+  async getById(id: string): Promise<ThirdParty> {
+    return apiRequest<ThirdParty>(`/api/third-parties/${id}`);
+  },
+
+  /**
+   * Crear nuevo tercero
+   */
+  async create(data: CreateThirdPartyInput): Promise<ThirdParty> {
+    return apiRequest<ThirdParty>('/api/third-parties', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar tercero
+   */
+  async update(id: string, data: UpdateThirdPartyInput): Promise<ThirdParty> {
+    return apiRequest<ThirdParty>(`/api/third-parties/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Eliminar tercero (soft delete)
+   */
+  async delete(id: string): Promise<{ deleted: boolean; id: string }> {
+    return apiRequest<{ deleted: boolean; id: string }>(`/api/third-parties/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Actualizar fecha de último uso (llamar al usar en una transacción)
+   */
+  async markAsUsed(id: string): Promise<ThirdParty> {
+    return apiRequest<ThirdParty>(`/api/third-parties/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ lastUsedAt: new Date() }),
+    });
+  },
+};

@@ -8,4 +8,6 @@ export { Card, StatCard } from './Card';
 export type { CardProps, StatCardProps } from './Card';
 
 export { Select } from './Select';
-export type { SelectProps, SelectOption } from './Select';
+export type { SelectOption } from './Select';
+
+export { default as ThirdPartyAutocomplete } from './ThirdPartyAutocomplete';

@@ -12,12 +12,46 @@ import {
   Database,
   RefreshCw,
   Check,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
+import { auth } from '@/lib/firebase/config';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'data'>('profile');
   const [saving, setSaving] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [fixingDates, setFixingDates] = useState(false);
+  const [migratingThirdParties, setMigratingThirdParties] = useState(false);
+  const [migrationResult, setMigrationResult] = useState<{
+    success: boolean;
+    message: string;
+    details?: {
+      processed: number;
+      recurrencesCreated: number;
+      transactionsGenerated: number;
+      totalTransactions?: number;
+      orphanedFound?: number;
+    };
+  } | null>(null);
+  const [fixDatesResult, setFixDatesResult] = useState<{
+    success: boolean;
+    message: string;
+    details?: {
+      recurrencesProcessed: number;
+      transactionsDeleted: number;
+      transactionsGenerated: number;
+    };
+  } | null>(null);
+  const [thirdPartyMigrationResult, setThirdPartyMigrationResult] = useState<{
+    success: boolean;
+    message: string;
+    details?: {
+      thirdPartiesCreated: number;
+      transactionsUpdated: number;
+      uniqueNames: number;
+    };
+  } | null>(null);
 
   const tabs = [
     { id: 'profile', label: 'Perfil', icon: User },
@@ -31,6 +65,143 @@ export default function SettingsPage() {
     // Simular guardado
     await new Promise((resolve) => setTimeout(resolve, 1000));
     setSaving(false);
+  };
+
+  // Función para migrar recurrencias huérfanas
+  const handleMigrateRecurrences = async () => {
+    setMigrating(true);
+    setMigrationResult(null);
+    
+    try {
+      if (!auth?.currentUser) {
+        throw new Error('No estás autenticado');
+      }
+      
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch('/api/transactions/migrate-recurrences', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setMigrationResult({
+          success: true,
+          message: result.data.message || 'Migración completada',
+          details: {
+            processed: result.data.processed || 0,
+            recurrencesCreated: result.data.recurrencesCreated || 0,
+            transactionsGenerated: result.data.transactionsGenerated || 0,
+            totalTransactions: result.data.debug?.totalTransactions || 0,
+            orphanedFound: result.data.debug?.orphanedFound || 0,
+          }
+        });
+      } else {
+        throw new Error(result.error || 'Error en la migración');
+      }
+    } catch (error) {
+      setMigrationResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Error desconocido',
+      });
+    } finally {
+      setMigrating(false);
+    }
+  };
+
+  // Función para corregir fechas de recurrencias
+  const handleFixDates = async () => {
+    setFixingDates(true);
+    setFixDatesResult(null);
+    
+    try {
+      if (!auth?.currentUser) {
+        throw new Error('No estás autenticado');
+      }
+      
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch('/api/recurrences/fix-dates', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setFixDatesResult({
+          success: true,
+          message: result.data.message || 'Fechas corregidas',
+          details: {
+            recurrencesProcessed: result.data.recurrencesProcessed || 0,
+            transactionsDeleted: result.data.transactionsDeleted || 0,
+            transactionsGenerated: result.data.transactionsGenerated || 0,
+          }
+        });
+      } else {
+        throw new Error(result.error || 'Error corrigiendo fechas');
+      }
+    } catch (error) {
+      setFixDatesResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Error desconocido',
+      });
+    } finally {
+      setFixingDates(false);
+    }
+  };
+
+  // Función para migrar terceros
+  const handleMigrateThirdParties = async () => {
+    setMigratingThirdParties(true);
+    setThirdPartyMigrationResult(null);
+    
+    try {
+      if (!auth?.currentUser) {
+        throw new Error('No estás autenticado');
+      }
+      
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch('/api/third-parties/migrate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setThirdPartyMigrationResult({
+          success: true,
+          message: result.data.message || 'Migración completada',
+          details: {
+            thirdPartiesCreated: result.data.thirdPartiesCreated || 0,
+            transactionsUpdated: result.data.transactionsUpdated || 0,
+            uniqueNames: result.data.uniqueNames || 0,
+          }
+        });
+      } else {
+        throw new Error(result.error || 'Error migrando terceros');
+      }
+    } catch (error) {
+      setThirdPartyMigrationResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Error desconocido',
+      });
+    } finally {
+      setMigratingThirdParties(false);
+    }
   };
 
   return (
@@ -194,6 +365,164 @@ export default function SettingsPage() {
 
           {activeTab === 'data' && (
             <div className="space-y-6">
+              {/* Nueva sección: Migrar Recurrencias */}
+              <Card title="Migrar Transacciones Recurrentes" subtitle="Genera transacciones futuras para movimientos recurrentes existentes">
+                <div className="space-y-4">
+                  <p className="text-gray-600">
+                    Si tienes movimientos marcados como recurrentes (mensual, semanal, etc.) pero no se generaron 
+                    las transacciones futuras automáticamente, usa esta herramienta para crearlas.
+                  </p>
+                  
+                  {migrationResult && (
+                    <div className={`p-4 rounded-lg ${migrationResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                      <div className="flex items-start space-x-3">
+                        {migrationResult.success ? (
+                          <Check className="text-green-600 mt-0.5" size={20} />
+                        ) : (
+                          <AlertCircle className="text-red-600 mt-0.5" size={20} />
+                        )}
+                        <div>
+                          <p className={`font-medium ${migrationResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                            {migrationResult.message}
+                          </p>
+                          {migrationResult.details && (
+                            <ul className="mt-2 text-sm text-green-700 space-y-1">
+                              <li>• Total transacciones encontradas: {migrationResult.details.totalTransactions}</li>
+                              <li>• Transacciones recurrentes huérfanas: {migrationResult.details.orphanedFound}</li>
+                              <li>• Transacciones procesadas: {migrationResult.details.processed}</li>
+                              <li>• Recurrencias creadas: {migrationResult.details.recurrencesCreated}</li>
+                              <li>• Transacciones futuras generadas: {migrationResult.details.transactionsGenerated}</li>
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <Button 
+                    onClick={handleMigrateRecurrences} 
+                    disabled={migrating}
+                    variant="outline"
+                  >
+                    {migrating ? (
+                      <>
+                        <RefreshCw className="animate-spin mr-2" size={18} />
+                        Migrando...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={18} className="mr-2" />
+                        Migrar Recurrencias
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </Card>
+
+              {/* Nueva sección: Corregir Fechas */}
+              <Card title="Corregir Fechas de Recurrencias" subtitle="Regenera las transacciones futuras con fechas corregidas (incluye febrero)">
+                <div className="space-y-4">
+                  <p className="text-gray-600">
+                    Si las transacciones generadas automáticamente tienen fechas incorrectas (ej: saltan de enero a marzo, 
+                    omitiendo febrero), usa esta herramienta para eliminarlas y regenerarlas correctamente.
+                  </p>
+                  
+                  {fixDatesResult && (
+                    <div className={`p-4 rounded-lg ${fixDatesResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                      <div className="flex items-start space-x-3">
+                        {fixDatesResult.success ? (
+                          <Check className="text-green-600 mt-0.5" size={20} />
+                        ) : (
+                          <AlertCircle className="text-red-600 mt-0.5" size={20} />
+                        )}
+                        <div>
+                          <p className={`font-medium ${fixDatesResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                            {fixDatesResult.message}
+                          </p>
+                          {fixDatesResult.details && (
+                            <ul className="mt-2 text-sm text-green-700 space-y-1">
+                              <li>• Recurrencias procesadas: {fixDatesResult.details.recurrencesProcessed}</li>
+                              <li>• Transacciones eliminadas: {fixDatesResult.details.transactionsDeleted}</li>
+                              <li>• Transacciones regeneradas: {fixDatesResult.details.transactionsGenerated}</li>
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <Button 
+                    onClick={handleFixDates} 
+                    disabled={fixingDates}
+                    variant="outline"
+                  >
+                    {fixingDates ? (
+                      <>
+                        <RefreshCw className="animate-spin mr-2" size={18} />
+                        Corrigiendo...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={18} className="mr-2" />
+                        Corregir Fechas
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </Card>
+
+              {/* Nueva sección: Migrar Terceros */}
+              <Card title="Migrar Terceros" subtitle="Convierte los nombres de terceros en registros del maestro">
+                <div className="space-y-4">
+                  <p className="text-gray-600">
+                    Si tienes transacciones con nombres de terceros escritos manualmente, 
+                    usa esta herramienta para crear automáticamente los registros en el maestro de terceros.
+                  </p>
+                  
+                  {thirdPartyMigrationResult && (
+                    <div className={`p-4 rounded-lg ${thirdPartyMigrationResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                      <div className="flex items-start space-x-3">
+                        {thirdPartyMigrationResult.success ? (
+                          <Check className="text-green-600 mt-0.5" size={20} />
+                        ) : (
+                          <AlertCircle className="text-red-600 mt-0.5" size={20} />
+                        )}
+                        <div>
+                          <p className={`font-medium ${thirdPartyMigrationResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                            {thirdPartyMigrationResult.message}
+                          </p>
+                          {thirdPartyMigrationResult.details && (
+                            <ul className="mt-2 text-sm text-green-700 space-y-1">
+                              <li>• Nombres únicos encontrados: {thirdPartyMigrationResult.details.uniqueNames}</li>
+                              <li>• Terceros creados: {thirdPartyMigrationResult.details.thirdPartiesCreated}</li>
+                              <li>• Transacciones actualizadas: {thirdPartyMigrationResult.details.transactionsUpdated}</li>
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <Button 
+                    onClick={handleMigrateThirdParties} 
+                    disabled={migratingThirdParties}
+                    variant="outline"
+                  >
+                    {migratingThirdParties ? (
+                      <>
+                        <RefreshCw className="animate-spin mr-2" size={18} />
+                        Migrando...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={18} className="mr-2" />
+                        Migrar Terceros
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </Card>
+
               <Card title="Exportar Datos">
                 <div className="space-y-4">
                   <p className="text-gray-600">

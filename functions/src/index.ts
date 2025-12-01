@@ -11,7 +11,7 @@
 
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import { db, Account, CreditLine, Transaction, AlertConfig, Recurrence, formatCurrency } from './config';
+import { db, Account, CreditLine, Transaction, AlertConfig, formatCurrency } from './config';
 
 // ============================
 // 1. CALCULATE RUNWAY
@@ -426,69 +426,310 @@ export const checkStaleData = functions.pubsub
 // ============================
 // 5. GENERATE RECURRENCES
 // ============================
+
+/**
+ * Calcula la próxima fecha de ocurrencia basada en la frecuencia
+ */
+function calculateNextOccurrenceDate(
+  currentDate: Date,
+  frequency: string,
+  dayOfMonth?: number,
+  dayOfWeek?: number
+): Date {
+  const next = new Date(currentDate);
+  
+  switch (frequency) {
+    case 'DAILY':
+      next.setDate(next.getDate() + 1);
+      break;
+    case 'WEEKLY':
+      next.setDate(next.getDate() + 7);
+      break;
+    case 'BIWEEKLY':
+      next.setDate(next.getDate() + 14);
+      break;
+    case 'MONTHLY':
+      next.setMonth(next.getMonth() + 1);
+      if (dayOfMonth) {
+        const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+        next.setDate(Math.min(dayOfMonth, maxDay));
+      }
+      break;
+    case 'QUARTERLY':
+      next.setMonth(next.getMonth() + 3);
+      if (dayOfMonth) {
+        const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+        next.setDate(Math.min(dayOfMonth, maxDay));
+      }
+      break;
+    case 'YEARLY':
+      next.setFullYear(next.getFullYear() + 1);
+      break;
+    default:
+      break;
+  }
+  
+  return next;
+}
+
+/**
+ * Genera fechas de ocurrencia desde una fecha inicial hasta una fecha límite
+ */
+function generateOccurrenceDates(
+  startDate: Date,
+  endDate: Date | null,
+  frequency: string,
+  dayOfMonth?: number,
+  dayOfWeek?: number,
+  maxDate?: Date
+): Date[] {
+  const dates: Date[] = [];
+  const limitDate = maxDate || new Date(new Date().setMonth(new Date().getMonth() + 12));
+  
+  // Determinar fecha fin efectiva
+  const effectiveEndDate = endDate && endDate < limitDate ? endDate : limitDate;
+  
+  let currentDate = new Date(startDate);
+  
+  // Ajustar al día del mes correcto para frecuencias mensuales+
+  if (['MONTHLY', 'QUARTERLY', 'YEARLY'].includes(frequency) && dayOfMonth) {
+    const maxDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+    currentDate.setDate(Math.min(dayOfMonth, maxDay));
+  }
+  
+  // Generar fechas hasta la fecha límite
+  while (currentDate <= effectiveEndDate) {
+    // Solo agregar fechas futuras o de hoy
+    if (currentDate >= new Date(new Date().setHours(0, 0, 0, 0))) {
+      dates.push(new Date(currentDate));
+    }
+    currentDate = calculateNextOccurrenceDate(currentDate, frequency, dayOfMonth, dayOfWeek);
+    
+    // Seguridad: máximo 100 ocurrencias
+    if (dates.length >= 100) break;
+  }
+  
+  return dates;
+}
+
 /**
  * Scheduled: Diariamente a las 6:00 AM
- * Genera movimientos a partir de recurrencias activas
+ * Genera movimientos futuros a partir de recurrencias activas
+ * 
+ * NUEVA LÓGICA:
+ * - Procesa TODAS las recurrencias activas, no solo las del día actual
+ * - Genera transacciones para los próximos N meses (configurable, default 6)
+ * - Respeta endDate (null = indefinido, con fecha = se detiene ahí)
+ * - Evita duplicados verificando transacciones existentes por fecha
+ * - Soporta cancelación: status PAUSED/ENDED no genera más transacciones
  */
 export const generateRecurrences = functions.pubsub
   .schedule('0 6 * * *')
   .timeZone('Europe/Madrid')
   .onRun(async (context) => {
     const today = new Date();
-    const todayDay = today.getDate();
+    const now = admin.firestore.Timestamp.now();
+
+    console.log(`[generateRecurrences] Iniciando generación - ${today.toISOString()}`);
 
     try {
-      // Obtener recurrencias activas para hoy
-      const recurrencesSnap = await db.collection('recurrences')
-        .where('active', '==', true)
-        .where('dayOfMonth', '==', todayDay)
+      // Obtener TODAS las recurrencias activas (nuevo campo 'status' o legacy 'active')
+      // Primero intentamos con el nuevo esquema
+      let recurrencesSnap = await db.collection('recurrences')
+        .where('status', '==', 'ACTIVE')
         .get();
+      
+      // Si no hay resultados, intentar con el esquema legacy
+      if (recurrencesSnap.empty) {
+        recurrencesSnap = await db.collection('recurrences')
+          .where('active', '==', true)
+          .get();
+      }
 
-      let created = 0;
+      console.log(`[generateRecurrences] Encontradas ${recurrencesSnap.size} recurrencias activas`);
+
+      let totalCreated = 0;
+      let totalSkipped = 0;
+      const errors: string[] = [];
 
       for (const doc of recurrencesSnap.docs) {
-        const recurrence = doc.data() as Recurrence;
+        const data = doc.data();
+        const recurrenceId = doc.id;
+        
+        try {
+          // Extraer datos con soporte para campos legacy y nuevos
+          const recurrence = {
+            id: recurrenceId,
+            userId: data.userId || data.createdBy,
+            companyId: data.companyId,
+            accountId: data.accountId || null,
+            type: data.type,
+            name: data.name || data.description || 'Recurrencia',
+            baseAmount: data.baseAmount || data.amount || 0,
+            category: data.category || '',
+            thirdPartyId: data.thirdPartyId || null,
+            thirdPartyName: data.thirdPartyName || '',
+            certainty: data.certainty || 'HIGH',
+            notes: data.notes || '',
+            frequency: data.frequency || 'MONTHLY',
+            dayOfMonth: data.dayOfMonth,
+            dayOfWeek: data.dayOfWeek,
+            startDate: data.startDate?.toDate?.() || new Date(data.startDate),
+            endDate: data.endDate?.toDate?.() || null,
+            generateMonthsAhead: data.generateMonthsAhead || 6,
+            lastGeneratedDate: data.lastGeneratedDate?.toDate?.() || null,
+          };
 
-        // Verificar que no se haya generado ya este mes
-        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        const existingSnap = await db.collection('transactions')
-          .where('recurrenceId', '==', doc.id)
-          .where('dueDate', '>=', admin.firestore.Timestamp.fromDate(startOfMonth))
-          .limit(1)
-          .get();
+          // Verificar si la recurrencia ha terminado (endDate en el pasado)
+          if (recurrence.endDate && recurrence.endDate < today) {
+            console.log(`[generateRecurrences] Recurrencia ${recurrenceId} terminada (endDate: ${recurrence.endDate})`);
+            // Marcar como ENDED si no lo está ya
+            if (data.status !== 'ENDED') {
+              await doc.ref.update({ 
+                status: 'ENDED', 
+                updatedAt: now 
+              });
+            }
+            continue;
+          }
 
-        if (existingSnap.empty) {
-          // Crear el movimiento
-          await db.collection('transactions').add({
-            companyId: recurrence.companyId,
-            accountId: recurrence.accountId,
-            type: recurrence.type,
-            status: 'PENDING',
-            amount: recurrence.amount,
-            category: recurrence.category,
-            description: recurrence.description,
-            dueDate: admin.firestore.Timestamp.fromDate(today),
-            recurrenceId: doc.id,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          // Calcular fecha límite de generación
+          const maxDate = new Date(today);
+          maxDate.setMonth(maxDate.getMonth() + recurrence.generateMonthsAhead);
+
+          // Determinar desde cuándo generar
+          const generateFrom = recurrence.lastGeneratedDate 
+            ? new Date(Math.max(recurrence.lastGeneratedDate.getTime(), today.getTime()))
+            : recurrence.startDate;
+
+          // Generar fechas de ocurrencia
+          const dates = generateOccurrenceDates(
+            generateFrom,
+            recurrence.endDate,
+            recurrence.frequency,
+            recurrence.dayOfMonth,
+            recurrence.dayOfWeek,
+            maxDate
+          );
+
+          if (dates.length === 0) {
+            console.log(`[generateRecurrences] Recurrencia ${recurrenceId}: sin fechas pendientes`);
+            continue;
+          }
+
+          // Obtener transacciones ya existentes para esta recurrencia
+          const existingSnap = await db.collection('transactions')
+            .where('recurrenceId', '==', recurrenceId)
+            .get();
+          
+          const existingDates = new Set<string>();
+          existingSnap.docs.forEach(txDoc => {
+            const txData = txDoc.data();
+            const dueDate = txData.dueDate?.toDate?.() || new Date(txData.dueDate);
+            existingDates.add(dueDate.toISOString().split('T')[0]);
           });
 
-          // Actualizar próxima ocurrencia
-          const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, recurrence.dayOfMonth);
-          await doc.ref.update({
-            nextOccurrence: admin.firestore.Timestamp.fromDate(nextMonth),
-            lastGenerated: admin.firestore.FieldValue.serverTimestamp(),
-          });
+          // Crear transacciones que no existan
+          const batch = db.batch();
+          let batchCount = 0;
+          let lastGeneratedDate: Date | null = null;
 
-          created++;
+          for (const date of dates) {
+            const dateKey = date.toISOString().split('T')[0];
+            
+            // Saltar si ya existe
+            if (existingDates.has(dateKey)) {
+              totalSkipped++;
+              continue;
+            }
+
+            const transactionRef = db.collection('transactions').doc();
+            const instanceDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+            batch.set(transactionRef, {
+              userId: recurrence.userId,
+              companyId: recurrence.companyId,
+              accountId: recurrence.accountId,
+              type: recurrence.type,
+              amount: recurrence.baseAmount,
+              status: 'PENDING',
+              dueDate: admin.firestore.Timestamp.fromDate(date),
+              paidDate: null,
+              category: recurrence.category,
+              description: recurrence.name,
+              thirdPartyId: recurrence.thirdPartyId,
+              thirdPartyName: recurrence.thirdPartyName,
+              notes: recurrence.notes,
+              recurrence: recurrence.frequency,
+              certainty: recurrence.certainty,
+              recurrenceId: recurrenceId,
+              isRecurrenceInstance: true,
+              instanceDate,
+              overriddenFromRecurrence: false,
+              createdBy: recurrence.userId,
+              lastUpdatedBy: recurrence.userId,
+              createdAt: now,
+              updatedAt: now,
+            });
+
+            batchCount++;
+            totalCreated++;
+            
+            if (!lastGeneratedDate || date > lastGeneratedDate) {
+              lastGeneratedDate = date;
+            }
+
+            // Firestore batch limit es 500
+            if (batchCount >= 450) {
+              await batch.commit();
+              console.log(`[generateRecurrences] Batch intermedio committed para recurrencia ${recurrenceId}`);
+            }
+          }
+
+          // Commit final del batch
+          if (batchCount > 0) {
+            await batch.commit();
+            
+            // Actualizar la recurrencia con la última fecha generada
+            const nextOccurrence = dates.length > 0 
+              ? calculateNextOccurrenceDate(
+                  dates[dates.length - 1],
+                  recurrence.frequency,
+                  recurrence.dayOfMonth,
+                  recurrence.dayOfWeek
+                )
+              : null;
+
+            await doc.ref.update({
+              lastGeneratedDate: lastGeneratedDate 
+                ? admin.firestore.Timestamp.fromDate(lastGeneratedDate) 
+                : null,
+              nextOccurrenceDate: nextOccurrence 
+                ? admin.firestore.Timestamp.fromDate(nextOccurrence) 
+                : null,
+              updatedAt: now,
+            });
+
+            console.log(`[generateRecurrences] Recurrencia ${recurrenceId}: ${batchCount} transacciones creadas`);
+          }
+
+        } catch (recError) {
+          const errorMsg = `Error procesando recurrencia ${recurrenceId}: ${recError}`;
+          console.error(`[generateRecurrences] ${errorMsg}`);
+          errors.push(errorMsg);
         }
       }
 
-      console.log(`Generados ${created} movimientos recurrentes`);
+      console.log(`[generateRecurrences] Resumen: ${totalCreated} creadas, ${totalSkipped} omitidas, ${errors.length} errores`);
+      
+      if (errors.length > 0) {
+        console.error(`[generateRecurrences] Errores: ${errors.join('; ')}`);
+      }
+
       return null;
 
     } catch (error) {
-      console.error('Error generando recurrencias:', error);
+      console.error('[generateRecurrences] Error fatal:', error);
       return null;
     }
   });

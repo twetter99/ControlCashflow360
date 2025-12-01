@@ -39,6 +39,10 @@ function documentToTransaction(id: string, data: DocumentData): Transaction {
     recurrence: data.recurrence || 'NONE',
     certainty: data.certainty || 'HIGH',
     recurrenceId: data.recurrenceId,
+    // Campos de instancia de recurrencia
+    isRecurrenceInstance: data.isRecurrenceInstance || false,
+    instanceDate: data.instanceDate || undefined,
+    overriddenFromRecurrence: data.overriddenFromRecurrence || false,
     createdBy: data.createdBy,
     lastUpdatedBy: data.lastUpdatedBy,
     createdAt: data.createdAt?.toDate(),

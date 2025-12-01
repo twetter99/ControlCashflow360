@@ -15,11 +15,11 @@ export type TransactionType = 'INCOME' | 'EXPENSE';
 
 export type TransactionStatus = 'PENDING' | 'PAID' | 'CANCELLED';
 
-export type RecurrenceFrequency = 'NONE' | 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type RecurrenceFrequency = 'NONE' | 'DAILY' | 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
 
 export type CertaintyLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
-export type ThirdPartyType = 'CUSTOMER' | 'SUPPLIER';
+export type ThirdPartyType = 'CUSTOMER' | 'SUPPLIER' | 'CREDITOR' | 'MIXED';
 
 export type AlertType = 
   | 'MIN_LIQUIDITY' 
@@ -134,10 +134,13 @@ export interface Transaction {
   thirdPartyId?: string;
   thirdPartyName?: string;
   notes?: string;
-  // Nuevos campos para previsiones
+  // Campos para recurrencias
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;
-  recurrenceId?: string | null;
+  recurrenceId?: string | null;       // ID de la recurrencia padre (si aplica)
+  isRecurrenceInstance?: boolean;      // true si fue generada desde una recurrencia
+  instanceDate?: string;               // Fecha única de la instancia (YYYY-MM para agrupar)
+  overriddenFromRecurrence?: boolean;  // true si el usuario modificó esta instancia
   createdBy: string;
   lastUpdatedBy?: string;
   createdAt?: Date;
@@ -145,28 +148,53 @@ export interface Transaction {
 }
 
 // ============================================
-// Colección: recurrences (Recurrentes)
+// Colección: recurrences (Plantillas Recurrentes)
 // ============================================
+
+export type RecurrenceStatus = 'ACTIVE' | 'PAUSED' | 'ENDED';
 
 export interface Recurrence {
   id: string;
+  userId: string;
   companyId: string;
+  // Datos de la transacción plantilla
   type: TransactionType;
-  name: string;
-  baseAmount: number;
-  frequency: RecurrenceFrequency;
-  dayOfMonth?: number;
-  dayOfWeek?: number;
+  name: string;                        // Nombre/descripción de la recurrencia
+  baseAmount: number;                  // Importe base
   category: string;
   thirdPartyId?: string;
-  isVariable: boolean;
-  generateAhead: number; // Meses a generar por adelantado
-  status: EntityStatus;
-  nextGenerationDate?: Date;
-  createdBy?: string;
+  thirdPartyName?: string;
+  accountId?: string;                  // Cuenta por defecto
+  certainty: CertaintyLevel;
+  notes?: string;
+  // Configuración de recurrencia
+  frequency: RecurrenceFrequency;
+  dayOfMonth?: number;                 // Para MONTHLY (1-31)
+  dayOfWeek?: number;                  // Para WEEKLY (0=Dom, 1=Lun, etc.)
+  startDate: Date;                     // Fecha de inicio
+  endDate?: Date | null;               // Fecha fin (null = indefinida)
+  // Control de generación
+  generateMonthsAhead: number;         // Meses a generar por adelantado (default: 6)
+  lastGeneratedDate?: Date;            // Última fecha hasta la que se generaron instancias
+  nextOccurrenceDate?: Date;           // Próxima fecha a generar
+  // Estado
+  status: RecurrenceStatus;
+  // Metadata
+  createdBy: string;
   lastUpdatedBy?: string;
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+// ============================================
+// Tipos auxiliares para generación de ocurrencias
+// ============================================
+
+export interface OccurrenceGenerationResult {
+  recurrenceId: string;
+  generatedCount: number;
+  transactionIds: string[];
+  lastGeneratedDate: Date;
 }
 
 // ============================================
@@ -175,19 +203,50 @@ export interface Recurrence {
 
 export interface ThirdParty {
   id: string;
-  companyId?: string; // Opcional, puede ser compartido entre empresas
+  userId: string;                    // Dueño del registro (terceros por usuario)
   type: ThirdPartyType;
-  name: string;
-  cif?: string;
+  displayName: string;               // Nombre para mostrar
+  normalizedName: string;            // Minúsculas, sin tildes, para búsqueda/duplicados
+  cif?: string;                      // NIF/CIF opcional
   email?: string;
   phone?: string;
-  avgPaymentDelay: number; // Días de retraso promedio
-  paymentTerms?: string;
-  totalVolume12m: number; // Volumen últimos 12 meses
-  riskAlert: boolean;
+  isActive: boolean;                 // Default true
+  lastUsedAt?: Date;                 // Última vez usado en una transacción
+  avgPaymentDelay?: number;          // Días de retraso promedio (opcional)
+  totalVolume12m?: number;           // Volumen últimos 12 meses (opcional)
   notes?: string;
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+// Input para crear tercero
+export interface CreateThirdPartyInput {
+  type: ThirdPartyType;
+  displayName: string;
+  cif?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+}
+
+// Input para actualizar tercero
+export interface UpdateThirdPartyInput {
+  type?: ThirdPartyType;
+  displayName?: string;
+  cif?: string;
+  email?: string;
+  phone?: string;
+  isActive?: boolean;
+  notes?: string;
+}
+
+// Resultado de búsqueda de terceros
+export interface ThirdPartySearchResult {
+  id: string;
+  displayName: string;
+  type: ThirdPartyType;
+  cif?: string;
+  similarity?: number; // Para detección de duplicados
 }
 
 // ============================================
