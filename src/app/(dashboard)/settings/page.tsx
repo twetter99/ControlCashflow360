@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { 
   Settings,
@@ -13,9 +13,114 @@ import {
   RefreshCw,
   Check,
   X,
-  AlertCircle
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Copy,
+  Sparkles,
+  CheckCircle2
 } from 'lucide-react';
 import { auth } from '@/lib/firebase/config';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+
+// Tipos para el generador de contraseñas
+interface PasswordOptions {
+  length: number;
+  uppercase: boolean;
+  lowercase: boolean;
+  numbers: boolean;
+  symbols: boolean;
+}
+
+interface PasswordStrength {
+  score: number; // 0-4
+  label: string;
+  color: string;
+}
+
+// Función para generar contraseña segura
+function generateSecurePassword(options: PasswordOptions): string {
+  const uppercaseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lowercaseChars = 'abcdefghijklmnopqrstuvwxyz';
+  const numberChars = '0123456789';
+  const symbolChars = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+  
+  let chars = '';
+  let password = '';
+  
+  // Construir conjunto de caracteres
+  if (options.uppercase) chars += uppercaseChars;
+  if (options.lowercase) chars += lowercaseChars;
+  if (options.numbers) chars += numberChars;
+  if (options.symbols) chars += symbolChars;
+  
+  if (chars.length === 0) chars = lowercaseChars + numberChars;
+  
+  // Generar usando crypto para mayor seguridad
+  const randomValues = new Uint32Array(options.length);
+  crypto.getRandomValues(randomValues);
+  
+  for (let i = 0; i < options.length; i++) {
+    password += chars[randomValues[i] % chars.length];
+  }
+  
+  // Asegurar que tenga al menos uno de cada tipo seleccionado
+  let finalPassword = password.split('');
+  let position = 0;
+  
+  if (options.uppercase && !/[A-Z]/.test(password)) {
+    const idx = randomValues[position++ % randomValues.length] % uppercaseChars.length;
+    finalPassword[position % options.length] = uppercaseChars[idx];
+  }
+  if (options.lowercase && !/[a-z]/.test(password)) {
+    const idx = randomValues[position++ % randomValues.length] % lowercaseChars.length;
+    finalPassword[position % options.length] = lowercaseChars[idx];
+  }
+  if (options.numbers && !/[0-9]/.test(password)) {
+    const idx = randomValues[position++ % randomValues.length] % numberChars.length;
+    finalPassword[position % options.length] = numberChars[idx];
+  }
+  if (options.symbols && !/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)) {
+    const idx = randomValues[position++ % randomValues.length] % symbolChars.length;
+    finalPassword[position % options.length] = symbolChars[idx];
+  }
+  
+  return finalPassword.join('');
+}
+
+// Función para evaluar fortaleza de contraseña
+function evaluatePasswordStrength(password: string): PasswordStrength {
+  let score = 0;
+  
+  if (!password) return { score: 0, label: 'Muy débil', color: 'bg-gray-200' };
+  
+  // Longitud
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (password.length >= 16) score++;
+  
+  // Complejidad
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+  if (/\d/.test(password)) score++;
+  if (/[^a-zA-Z0-9]/.test(password)) score++;
+  
+  // Penalizar patrones comunes
+  if (/(.)\1{2,}/.test(password)) score--; // Caracteres repetidos
+  if (/^[a-zA-Z]+$/.test(password)) score--; // Solo letras
+  if (/^[0-9]+$/.test(password)) score--; // Solo números
+  
+  score = Math.max(0, Math.min(4, score));
+  
+  const strengths: PasswordStrength[] = [
+    { score: 0, label: 'Muy débil', color: 'bg-red-500' },
+    { score: 1, label: 'Débil', color: 'bg-orange-500' },
+    { score: 2, label: 'Regular', color: 'bg-yellow-500' },
+    { score: 3, label: 'Fuerte', color: 'bg-lime-500' },
+    { score: 4, label: 'Muy fuerte', color: 'bg-green-500' },
+  ];
+  
+  return strengths[score];
+}
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'data'>('profile');
@@ -23,6 +128,28 @@ export default function SettingsPage() {
   const [migrating, setMigrating] = useState(false);
   const [fixingDates, setFixingDates] = useState(false);
   const [migratingThirdParties, setMigratingThirdParties] = useState(false);
+  
+  // Estados para cambio de contraseña
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [copiedPassword, setCopiedPassword] = useState(false);
+  
+  // Opciones del generador
+  const [passwordOptions, setPasswordOptions] = useState<PasswordOptions>({
+    length: 16,
+    uppercase: true,
+    lowercase: true,
+    numbers: true,
+    symbols: true,
+  });
+  const [showGenerator, setShowGenerator] = useState(false);
+  
   const [migrationResult, setMigrationResult] = useState<{
     success: boolean;
     message: string;
@@ -52,6 +179,89 @@ export default function SettingsPage() {
       uniqueNames: number;
     };
   } | null>(null);
+
+  // Generar nueva contraseña
+  const handleGeneratePassword = useCallback(() => {
+    const generated = generateSecurePassword(passwordOptions);
+    setNewPassword(generated);
+    setConfirmPassword(generated);
+    setShowNewPassword(true);
+    setShowConfirmPassword(true);
+  }, [passwordOptions]);
+
+  // Copiar contraseña al portapapeles
+  const handleCopyPassword = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(newPassword);
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 2000);
+    } catch (err) {
+      console.error('Error copiando contraseña:', err);
+    }
+  }, [newPassword]);
+
+  // Cambiar contraseña
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordMessage(null);
+    
+    if (!currentPassword) {
+      setPasswordMessage({ type: 'error', text: 'Introduce tu contraseña actual' });
+      return;
+    }
+    
+    if (newPassword.length < 8) {
+      setPasswordMessage({ type: 'error', text: 'La nueva contraseña debe tener al menos 8 caracteres' });
+      return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage({ type: 'error', text: 'Las contraseñas no coinciden' });
+      return;
+    }
+    
+    const strength = evaluatePasswordStrength(newPassword);
+    if (strength.score < 2) {
+      setPasswordMessage({ type: 'error', text: 'La contraseña es demasiado débil. Usa el generador o añade más complejidad.' });
+      return;
+    }
+    
+    setChangingPassword(true);
+    
+    try {
+      const user = auth?.currentUser;
+      if (!user || !user.email) {
+        throw new Error('No hay usuario autenticado');
+      }
+      
+      // Reautenticar al usuario
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      
+      // Cambiar contraseña
+      await updatePassword(user, newPassword);
+      
+      setPasswordMessage({ type: 'success', text: '¡Contraseña cambiada correctamente!' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowGenerator(false);
+    } catch (error: unknown) {
+      console.error('Error cambiando contraseña:', error);
+      const firebaseError = error as { code?: string };
+      if (firebaseError.code === 'auth/wrong-password') {
+        setPasswordMessage({ type: 'error', text: 'La contraseña actual es incorrecta' });
+      } else if (firebaseError.code === 'auth/too-many-requests') {
+        setPasswordMessage({ type: 'error', text: 'Demasiados intentos. Espera unos minutos.' });
+      } else {
+        setPasswordMessage({ type: 'error', text: 'Error al cambiar la contraseña. Inténtalo de nuevo.' });
+      }
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const passwordStrength = evaluatePasswordStrength(newPassword);
 
   const tabs = [
     { id: 'profile', label: 'Perfil', icon: User },
@@ -319,12 +529,215 @@ export default function SettingsPage() {
           {activeTab === 'security' && (
             <div className="space-y-6">
               <Card title="Cambiar Contraseña">
-                <form className="space-y-4">
-                  <Input label="Contraseña actual" type="password" />
-                  <Input label="Nueva contraseña" type="password" />
-                  <Input label="Confirmar nueva contraseña" type="password" />
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  {/* Mensaje de estado */}
+                  {passwordMessage && (
+                    <div className={`p-4 rounded-lg flex items-start gap-3 ${
+                      passwordMessage.type === 'success' 
+                        ? 'bg-green-50 border border-green-200' 
+                        : 'bg-red-50 border border-red-200'
+                    }`}>
+                      {passwordMessage.type === 'success' ? (
+                        <CheckCircle2 className="text-green-600 mt-0.5 flex-shrink-0" size={20} />
+                      ) : (
+                        <AlertCircle className="text-red-600 mt-0.5 flex-shrink-0" size={20} />
+                      )}
+                      <span className={passwordMessage.type === 'success' ? 'text-green-800' : 'text-red-800'}>
+                        {passwordMessage.text}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Contraseña actual */}
+                  <div className="relative">
+                    <Input 
+                      label="Contraseña actual" 
+                      type={showCurrentPassword ? 'text' : 'password'}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                    >
+                      {showCurrentPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                  </div>
+
+                  {/* Nueva contraseña con generador */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-gray-700">Nueva contraseña</label>
+                      <button
+                        type="button"
+                        onClick={() => setShowGenerator(!showGenerator)}
+                        className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                      >
+                        <Sparkles size={16} />
+                        {showGenerator ? 'Ocultar generador' : 'Generar contraseña segura'}
+                      </button>
+                    </div>
+
+                    {/* Panel del generador */}
+                    {showGenerator && (
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-700">Generador de Contraseñas</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={handleGeneratePassword}
+                            className="flex items-center gap-2"
+                          >
+                            <RefreshCw size={16} />
+                            Generar
+                          </Button>
+                        </div>
+
+                        {/* Longitud */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-sm text-gray-600">Longitud</label>
+                            <span className="text-sm font-medium text-gray-900">{passwordOptions.length} caracteres</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="8"
+                            max="32"
+                            value={passwordOptions.length}
+                            onChange={(e) => setPasswordOptions({ ...passwordOptions, length: parseInt(e.target.value) })}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                          />
+                          <div className="flex justify-between text-xs text-gray-400 mt-1">
+                            <span>8</span>
+                            <span>16</span>
+                            <span>24</span>
+                            <span>32</span>
+                          </div>
+                        </div>
+
+                        {/* Opciones */}
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            { key: 'uppercase', label: 'Mayúsculas (A-Z)' },
+                            { key: 'lowercase', label: 'Minúsculas (a-z)' },
+                            { key: 'numbers', label: 'Números (0-9)' },
+                            { key: 'symbols', label: 'Símbolos (!@#$)' },
+                          ].map((option) => (
+                            <label key={option.key} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={passwordOptions[option.key as keyof PasswordOptions] as boolean}
+                                onChange={(e) => setPasswordOptions({ 
+                                  ...passwordOptions, 
+                                  [option.key]: e.target.checked 
+                                })}
+                                className="w-4 h-4 text-primary-600 rounded"
+                              />
+                              <span className="text-sm text-gray-600">{option.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Campo de nueva contraseña */}
+                    <div className="relative">
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Introduce o genera una contraseña"
+                        autoComplete="new-password"
+                        className="w-full px-4 py-2.5 pr-20 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        {newPassword && (
+                          <button
+                            type="button"
+                            onClick={handleCopyPassword}
+                            className="p-1 text-gray-400 hover:text-gray-600"
+                            title="Copiar contraseña"
+                          >
+                            {copiedPassword ? <Check size={18} className="text-green-500" /> : <Copy size={18} />}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="p-1 text-gray-400 hover:text-gray-600"
+                        >
+                          {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Indicador de fortaleza */}
+                    {newPassword && (
+                      <div className="space-y-2">
+                        <div className="flex gap-1">
+                          {[0, 1, 2, 3, 4].map((i) => (
+                            <div
+                              key={i}
+                              className={`h-1.5 flex-1 rounded-full transition-colors ${
+                                i <= passwordStrength.score ? passwordStrength.color : 'bg-gray-200'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-500">Fortaleza:</span>
+                          <span className={`font-medium ${
+                            passwordStrength.score >= 3 ? 'text-green-600' : 
+                            passwordStrength.score >= 2 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>
+                            {passwordStrength.label}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Confirmar contraseña */}
+                  <div className="relative">
+                    <Input 
+                      label="Confirmar nueva contraseña" 
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                    >
+                      {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                    {confirmPassword && newPassword && (
+                      <div className="absolute right-10 top-9">
+                        {confirmPassword === newPassword ? (
+                          <Check size={20} className="text-green-500" />
+                        ) : (
+                          <X size={20} className="text-red-500" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="pt-4 flex justify-end">
-                    <Button>Cambiar Contraseña</Button>
+                    <Button type="submit" disabled={changingPassword}>
+                      {changingPassword ? (
+                        <>
+                          <RefreshCw className="animate-spin mr-2" size={18} />
+                          Cambiando...
+                        </>
+                      ) : (
+                        'Cambiar Contraseña'
+                      )}
+                    </Button>
                   </div>
                 </form>
               </Card>
