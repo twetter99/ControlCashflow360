@@ -146,6 +146,11 @@ export const CreateTransactionSchema = z.object({
     .pipe(z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres'))
     .optional()
     .default(''),
+  // Número de factura para ingresos (Capa 1 - Facturado)
+  invoiceNumber: sanitizedString(50)
+    .pipe(z.string().max(50, 'El número de factura no puede exceder 50 caracteres'))
+    .optional()
+    .default(''),
   recurrence: RecurrenceFrequencySchema.default('NONE'),
   certainty: CertaintyLevelSchema.default('HIGH'),
   recurrenceId: z.string().nullable().optional(),
@@ -179,6 +184,7 @@ export const UpdateTransactionSchema = z.object({
   thirdPartyId: z.string().optional().nullable(),
   thirdPartyName: sanitizedString(100).pipe(z.string().max(100)).optional(),
   notes: sanitizedString(1000).pipe(z.string().max(1000)).optional(),
+  invoiceNumber: sanitizedString(50).pipe(z.string().max(50)).optional(),
   recurrence: RecurrenceFrequencySchema.optional(),
   certainty: CertaintyLevelSchema.optional(),
 }).refine(data => Object.keys(data).length > 0, {

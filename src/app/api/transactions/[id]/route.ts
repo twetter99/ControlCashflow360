@@ -156,6 +156,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (body.thirdPartyId !== undefined) updateData.thirdPartyId = body.thirdPartyId;
     if (body.thirdPartyName !== undefined) updateData.thirdPartyName = body.thirdPartyName;
     if (body.notes !== undefined) updateData.notes = body.notes;
+    if (body.invoiceNumber !== undefined) updateData.invoiceNumber = body.invoiceNumber;
     if (body.recurrence !== undefined) updateData.recurrence = body.recurrence;
     if (body.certainty !== undefined) updateData.certainty = body.certainty;
 

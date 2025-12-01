@@ -5,7 +5,7 @@ import { Button, Card, Input, ThirdPartyAutocomplete } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { transactionsApi, companiesApi } from '@/lib/api-client';
-import { Transaction, Company, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel } from '@/types';
+import { Transaction, Company, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, getIncomeLayer } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -19,7 +19,9 @@ import {
   Edit2,
   Trash2,
   Repeat,
-  Target
+  Target,
+  FileText,
+  FileCheck
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -38,6 +40,7 @@ interface TransactionFormData {
   dueDate: string;
   companyId: string;
   notes: string;
+  invoiceNumber: string;
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;
 }
@@ -63,6 +66,7 @@ export default function TransactionsPage() {
     dueDate: '',
     companyId: '',
     notes: '',
+    invoiceNumber: '',
     recurrence: 'NONE',
     certainty: 'HIGH',
   });
@@ -164,6 +168,7 @@ export default function TransactionsPage() {
       dueDate: dueDateStr,
       companyId: tx.companyId,
       notes: tx.notes || '',
+      invoiceNumber: tx.invoiceNumber || '',
       recurrence: tx.recurrence || 'NONE',
       certainty: tx.certainty || 'HIGH',
     });
@@ -187,6 +192,7 @@ export default function TransactionsPage() {
           dueDate: new Date(formData.dueDate),
           companyId: formData.companyId,
           notes: formData.notes,
+          invoiceNumber: formData.type === 'INCOME' ? formData.invoiceNumber : '',
           recurrence: formData.recurrence,
           certainty: formData.certainty,
         });
@@ -206,6 +212,7 @@ export default function TransactionsPage() {
           thirdPartyName: formData.thirdPartyName,
           thirdPartyId: formData.thirdPartyId,
           notes: formData.notes,
+          invoiceNumber: formData.type === 'INCOME' ? formData.invoiceNumber : '',
           recurrence: formData.recurrence,
           certainty: formData.certainty,
           createdBy: user.uid,
@@ -226,6 +233,7 @@ export default function TransactionsPage() {
         dueDate: '',
         companyId: '',
         notes: '',
+        invoiceNumber: '',
         recurrence: 'NONE',
         certainty: 'HIGH',
       });
@@ -251,6 +259,37 @@ export default function TransactionsPage() {
         {labels[status]}
       </span>
     );
+  };
+
+  // Badge de capa para ingresos
+  const getIncomeLayerBadge = (tx: Transaction) => {
+    if (tx.type !== 'INCOME') return null;
+    
+    const layer = getIncomeLayer(tx);
+    
+    switch (layer) {
+      case 1:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-700 text-white" title="Facturado - Confirmado">
+            <FileCheck size={12} className="mr-1" />
+            Facturado
+          </span>
+        );
+      case 2:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-500 text-white" title="Contrato - Recurrente seguro">
+            <Repeat size={12} className="mr-1" />
+            Contrato
+          </span>
+        );
+      case 3:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-400 text-white" title="Estimado - Previsión">
+            <Target size={12} className="mr-1" />
+            Estimado
+          </span>
+        );
+    }
   };
 
   return (
@@ -375,8 +414,19 @@ export default function TransactionsPage() {
               {filteredTransactions.map((tx) => (
                 <tr key={tx.id} className="border-b last:border-0">
                   <td className="py-4">
-                    <p className="font-medium text-gray-900">{tx.description}</p>
-                    <p className="text-sm text-gray-500">{tx.thirdPartyName}</p>
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{tx.description}</p>
+                        <p className="text-sm text-gray-500">{tx.thirdPartyName}</p>
+                        {tx.invoiceNumber && (
+                          <p className="text-xs text-green-600 mt-0.5">
+                            <FileText size={10} className="inline mr-1" />
+                            {tx.invoiceNumber}
+                          </p>
+                        )}
+                      </div>
+                      {getIncomeLayerBadge(tx)}
+                    </div>
                   </td>
                   <td className="py-4">
                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
@@ -469,6 +519,7 @@ export default function TransactionsPage() {
                     dueDate: '',
                     companyId: '',
                     notes: '',
+                    invoiceNumber: '',
                     recurrence: 'NONE',
                     certainty: 'HIGH',
                   });
@@ -573,6 +624,30 @@ export default function TransactionsPage() {
                 </select>
               </div>
               
+              {/* Campo de factura - Solo para ingresos */}
+              {formData.type === 'INCOME' && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <FileText className="text-green-600 mt-1 flex-shrink-0" size={20} />
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-green-800 mb-1">
+                        Nº Factura (opcional)
+                      </label>
+                      <Input
+                        value={formData.invoiceNumber}
+                        onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                        placeholder="Ej: F-2024-001"
+                      />
+                      <p className="text-xs text-green-600 mt-1">
+                        {formData.invoiceNumber 
+                          ? '✓ Ingreso FACTURADO - Se contabilizará como confirmado'
+                          : 'Sin nº de factura = Ingreso previsto/estimado'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               {/* Nuevos campos: Recurrencia y Certeza */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -627,11 +702,13 @@ export default function TransactionsPage() {
                       type: 'EXPENSE',
                       description: '',
                       thirdPartyName: '',
+                      thirdPartyId: undefined,
                       category: '',
                       amount: '',
                       dueDate: '',
                       companyId: '',
                       notes: '',
+                      invoiceNumber: '',
                       recurrence: 'NONE',
                       certainty: 'HIGH',
                     });

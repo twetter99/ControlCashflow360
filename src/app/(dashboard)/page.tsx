@@ -5,7 +5,7 @@ import { Card } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi } from '@/lib/api-client';
-import { Account, CreditLine, Transaction } from '@/types';
+import { Account, CreditLine, Transaction, IncomeLayer } from '@/types';
 import { 
   Wallet, 
   TrendingUp, 
@@ -15,10 +15,14 @@ import {
   ArrowRight,
   Building2,
   Target,
-  BarChart3
+  BarChart3,
+  FileText,
+  RefreshCw,
+  Check
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Link from 'next/link';
+import { auth } from '@/lib/firebase/config';
 
 type ScenarioType = 'CONSERVATIVE' | 'REALISTIC' | 'OPTIMISTIC';
 
@@ -68,6 +72,22 @@ export default function DashboardPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [creditLines, setCreditLines] = useState<CreditLine[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  
+  // Objetivo mensual de ingresos (Sistema 3 Capas)
+  const [monthlyIncomeGoal, setMonthlyIncomeGoal] = useState<number>(0);
+
+  /**
+   * Determina la capa del ingreso basada en la lógica del Sistema de 3 Capas:
+   * - Capa 1 (Facturado): Tiene número de factura
+   * - Capa 2 (Contratos): Recurrencia != NONE y certeza HIGH
+   * - Capa 3 (Por cerrar): Todo lo demás
+   */
+  const getIncomeLayer = (tx: Transaction): IncomeLayer => {
+    if (tx.type !== 'INCOME') return 3;
+    if (tx.invoiceNumber) return 1; // Facturado
+    if (tx.recurrence !== 'NONE' && tx.certainty === 'HIGH') return 2; // Contrato recurrente
+    return 3; // Estimado / Por cerrar
+  };
 
   // Cargar datos via API
   useEffect(() => {
@@ -112,6 +132,28 @@ export default function DashboardPage() {
     };
     
     loadData();
+  }, [user]);
+
+  // Cargar objetivo mensual de ingresos
+  useEffect(() => {
+    const loadGoal = async () => {
+      try {
+        if (!auth?.currentUser) return;
+        const token = await auth.currentUser.getIdToken();
+        const response = await fetch('/api/user-settings', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data?.monthlyIncomeGoal) {
+            setMonthlyIncomeGoal(result.data.monthlyIncomeGoal);
+          }
+        }
+      } catch (error) {
+        console.error('Error cargando objetivo mensual:', error);
+      }
+    };
+    loadGoal();
   }, [user]);
 
   // Filtrar por empresa si está seleccionada
@@ -562,6 +604,207 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      {/* ==========================================
+          SISTEMA DE 3 CAPAS DE INGRESOS
+          ========================================== */}
+      {(() => {
+        // Calcular ingresos por capa del mes actual
+        const currentMonth = new Date().getMonth();
+        const currentYear = new Date().getFullYear();
+        
+        const monthlyIncomes = filteredTransactions.filter(tx => {
+          const txDate = new Date(tx.dueDate);
+          return tx.type === 'INCOME' && 
+                 txDate.getMonth() === currentMonth && 
+                 txDate.getFullYear() === currentYear;
+        });
+        
+        // Separar por capas
+        const layer1 = monthlyIncomes.filter(tx => getIncomeLayer(tx) === 1);
+        const layer2 = monthlyIncomes.filter(tx => getIncomeLayer(tx) === 2);
+        const layer3 = monthlyIncomes.filter(tx => getIncomeLayer(tx) === 3);
+        
+        const layer1Total = layer1.reduce((sum, tx) => sum + tx.amount, 0);
+        const layer2Total = layer2.reduce((sum, tx) => sum + tx.amount, 0);
+        const layer3Total = layer3.reduce((sum, tx) => sum + tx.amount, 0);
+        const totalIncomes = layer1Total + layer2Total + layer3Total;
+        
+        // Calcular progreso hacia el objetivo
+        const goalProgress = monthlyIncomeGoal > 0 ? (totalIncomes / monthlyIncomeGoal) * 100 : 0;
+        const layer1Progress = monthlyIncomeGoal > 0 ? (layer1Total / monthlyIncomeGoal) * 100 : 0;
+        const layer2Progress = monthlyIncomeGoal > 0 ? (layer2Total / monthlyIncomeGoal) * 100 : 0;
+        const layer3Progress = monthlyIncomeGoal > 0 ? (layer3Total / monthlyIncomeGoal) * 100 : 0;
+        
+        // Nombres de meses
+        const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                           'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        
+        return (
+          <div className="bg-gradient-to-r from-emerald-50 to-green-50 rounded-xl p-6 border border-green-200">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <div className="flex items-center">
+                <Target size={24} className="mr-2 text-emerald-700" />
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Sistema de 3 Capas - Ingresos</h2>
+                  <p className="text-sm text-gray-500">{monthNames[currentMonth]} {currentYear}</p>
+                </div>
+              </div>
+              {monthlyIncomeGoal > 0 && (
+                <div className="text-right">
+                  <p className="text-sm text-gray-500">Objetivo mensual</p>
+                  <p className="text-xl font-bold text-emerald-700">{formatCurrency(monthlyIncomeGoal)}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Barra de progreso por capas */}
+            {monthlyIncomeGoal > 0 && (
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium text-gray-700">
+                    Progreso: {formatCurrency(totalIncomes)} / {formatCurrency(monthlyIncomeGoal)}
+                  </span>
+                  <span className={`text-sm font-bold ${goalProgress >= 100 ? 'text-emerald-600' : goalProgress >= 75 ? 'text-green-600' : 'text-gray-600'}`}>
+                    {Math.min(goalProgress, 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="h-4 bg-gray-200 rounded-full overflow-hidden flex">
+                  {/* Capa 1 - Verde oscuro (Facturado) */}
+                  <div 
+                    className="h-full bg-emerald-600 transition-all duration-500"
+                    style={{ width: `${Math.min(layer1Progress, 100)}%` }}
+                    title={`Capa 1 (Facturado): ${formatCurrency(layer1Total)}`}
+                  />
+                  {/* Capa 2 - Verde medio (Contratos) */}
+                  <div 
+                    className="h-full bg-green-400 transition-all duration-500"
+                    style={{ width: `${Math.min(layer2Progress, 100 - layer1Progress)}%` }}
+                    title={`Capa 2 (Contratos): ${formatCurrency(layer2Total)}`}
+                  />
+                  {/* Capa 3 - Gris (Por cerrar) */}
+                  <div 
+                    className="h-full bg-gray-400 transition-all duration-500"
+                    style={{ width: `${Math.min(layer3Progress, 100 - layer1Progress - layer2Progress)}%` }}
+                    title={`Capa 3 (Por cerrar): ${formatCurrency(layer3Total)}`}
+                  />
+                </div>
+                {goalProgress < 100 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Faltan {formatCurrency(monthlyIncomeGoal - totalIncomes)} para alcanzar el objetivo
+                  </p>
+                )}
+                {goalProgress >= 100 && (
+                  <p className="text-xs text-emerald-600 mt-1 flex items-center">
+                    <Check size={14} className="mr-1" />
+                    ¡Objetivo alcanzado! Superado en {formatCurrency(totalIncomes - monthlyIncomeGoal)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Cards de cada capa */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Capa 1: Facturado */}
+              <div className="bg-white rounded-lg p-4 border-l-4 border-l-emerald-600 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center">
+                    <FileText size={18} className="text-emerald-600 mr-2" />
+                    <span className="font-medium text-gray-900">Capa 1: Facturado</span>
+                  </div>
+                  <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full">
+                    {layer1.length} ingresos
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-emerald-600">{formatCurrency(layer1Total)}</p>
+                <p className="text-xs text-gray-500 mt-1">Ingresos con factura emitida</p>
+                {monthlyIncomeGoal > 0 && (
+                  <div className="mt-2">
+                    <div className="h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-emerald-600 transition-all duration-500"
+                        style={{ width: `${Math.min((layer1Total / monthlyIncomeGoal) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-emerald-600 mt-1">{((layer1Total / monthlyIncomeGoal) * 100).toFixed(0)}% del objetivo</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Capa 2: Contratos */}
+              <div className="bg-white rounded-lg p-4 border-l-4 border-l-green-400 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center">
+                    <RefreshCw size={18} className="text-green-500 mr-2" />
+                    <span className="font-medium text-gray-900">Capa 2: Contratos</span>
+                  </div>
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                    {layer2.length} ingresos
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-green-500">{formatCurrency(layer2Total)}</p>
+                <p className="text-xs text-gray-500 mt-1">Recurrentes de alta certeza</p>
+                {monthlyIncomeGoal > 0 && (
+                  <div className="mt-2">
+                    <div className="h-1.5 bg-green-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-green-400 transition-all duration-500"
+                        style={{ width: `${Math.min((layer2Total / monthlyIncomeGoal) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-green-600 mt-1">{((layer2Total / monthlyIncomeGoal) * 100).toFixed(0)}% del objetivo</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Capa 3: Por cerrar */}
+              <div className="bg-white rounded-lg p-4 border-l-4 border-l-gray-400 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center">
+                    <Target size={18} className="text-gray-500 mr-2" />
+                    <span className="font-medium text-gray-900">Capa 3: Por cerrar</span>
+                  </div>
+                  <span className="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded-full">
+                    {layer3.length} ingresos
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-gray-500">{formatCurrency(layer3Total)}</p>
+                <p className="text-xs text-gray-500 mt-1">Estimados por confirmar</p>
+                {monthlyIncomeGoal > 0 && (
+                  <div className="mt-2">
+                    <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gray-400 transition-all duration-500"
+                        style={{ width: `${Math.min((layer3Total / monthlyIncomeGoal) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">{((layer3Total / monthlyIncomeGoal) * 100).toFixed(0)}% del objetivo</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Leyenda */}
+            <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-500">
+              <div className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-emerald-600"></span>
+                <span>Facturado (nº factura)</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-green-400"></span>
+                <span>Contratos (recurrente + alta certeza)</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-full bg-gray-400"></span>
+                <span>Por cerrar (resto)</span>
+              </div>
+              <Link href="/settings" className="ml-auto text-primary-600 hover:text-primary-700 font-medium">
+                Configurar objetivo →
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Próximos vencimientos */}
       <Card 

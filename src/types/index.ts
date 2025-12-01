@@ -49,6 +49,24 @@ export interface Company {
 }
 
 // ============================================
+// Colección: user_settings (Configuración del Usuario)
+// ============================================
+
+export interface UserSettings {
+  id: string;
+  userId: string;
+  // Objetivo de ingresos mensual (global, para Capa 3)
+  monthlyIncomeTarget?: number;
+  // Preferencias de visualización
+  dashboardPreferences?: {
+    showIncomeLayersChart?: boolean;
+    defaultForecastMonths?: number;
+  };
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// ============================================
 // Colección: accounts (Cuentas Bancarias)
 // ============================================
 
@@ -120,6 +138,12 @@ export interface CreditCard {
 // Colección: transactions (Movimientos)
 // ============================================
 
+// Capa de ingreso para clasificación visual
+export type IncomeLayer = 1 | 2 | 3;
+// 1 = Facturado (tiene invoiceNumber)
+// 2 = Contrato/Recurrente seguro (recurrencia + certeza HIGH, sin factura)
+// 3 = Estimado (sin factura, sin recurrencia alta)
+
 export interface Transaction {
   id: string;
   userId: string;
@@ -135,6 +159,8 @@ export interface Transaction {
   thirdPartyId?: string;
   thirdPartyName?: string;
   notes?: string;
+  // Campo para ingresos facturados (Capa 1)
+  invoiceNumber?: string;
   // Campos para recurrencias
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;
@@ -146,6 +172,24 @@ export interface Transaction {
   lastUpdatedBy?: string;
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+// Función helper para determinar la capa de un ingreso
+export function getIncomeLayer(transaction: Transaction): IncomeLayer {
+  if (transaction.type !== 'INCOME') return 3; // Solo aplica a ingresos
+  
+  // Capa 1: Tiene número de factura = Confirmado/Facturado
+  if (transaction.invoiceNumber && transaction.invoiceNumber.trim() !== '') {
+    return 1;
+  }
+  
+  // Capa 2: Es recurrente con certeza alta = Contrato seguro
+  if (transaction.recurrence !== 'NONE' && transaction.certainty === 'HIGH') {
+    return 2;
+  }
+  
+  // Capa 3: Todo lo demás = Estimado
+  return 3;
 }
 
 // ============================================
