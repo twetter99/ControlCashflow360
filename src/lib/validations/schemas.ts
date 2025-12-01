@@ -89,6 +89,7 @@ export const UpdateAccountSchema = z.object({
   currentBalance: z.number().finite().optional(),
   lastUpdateAmount: z.number().finite().optional(),
   status: EntityStatusSchema.optional(),
+  isPrimary: z.boolean().optional(),
 }).refine(data => Object.keys(data).length > 0, {
   message: 'Debe proporcionar al menos un campo para actualizar',
 });

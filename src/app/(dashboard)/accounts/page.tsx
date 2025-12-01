@@ -14,7 +14,10 @@ import {
   Wallet,
   Building2,
   AlertCircle,
-  X
+  X,
+  Star,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 
@@ -47,6 +50,7 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showSecondaryAccounts, setShowSecondaryAccounts] = useState(false);
   const [formData, setFormData] = useState<AccountFormData>({
     bankName: '',
     alias: '',
@@ -87,12 +91,32 @@ export default function AccountsPage() {
     ? accounts.filter((acc) => acc.companyId === selectedCompanyId)
     : accounts;
 
+  // Separar cuentas principales y secundarias
+  const primaryAccounts = filteredAccounts.filter(acc => acc.isPrimary);
+  const secondaryAccounts = filteredAccounts.filter(acc => !acc.isPrimary);
+
   // Calcular totales
   const totalBalance = filteredAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
 
   // Obtener nombre de empresa
   const getCompanyName = (companyId: string) => {
     return companies.find(c => c.id === companyId)?.name || 'Sin empresa';
+  };
+
+  // Toggle cuenta principal
+  const handleTogglePrimary = async (account: Account) => {
+    try {
+      const updated = await accountsApi.update(account.id, {
+        isPrimary: !account.isPrimary,
+      });
+      setAccounts(prev => prev.map(acc => 
+        acc.id === account.id ? { ...acc, isPrimary: updated.isPrimary } : acc
+      ));
+      toast.success(updated.isPrimary ? 'Cuenta marcada como principal' : 'Cuenta desmarcada como principal');
+    } catch (error) {
+      console.error('Error actualizando cuenta:', error);
+      toast.error('Error al actualizar la cuenta');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -129,15 +153,7 @@ export default function AccountsPage() {
         toast.success('Cuenta creada correctamente');
       }
       
-      setShowForm(false);
-      setEditingAccount(null);
-      setFormData({
-        bankName: '',
-        alias: '',
-        accountNumber: '',
-        companyId: '',
-        currentBalance: '0',
-      });
+      handleCloseForm();
     } catch (error) {
       console.error('Error guardando cuenta:', error);
       toast.error('Error al guardar la cuenta');
@@ -176,6 +192,32 @@ export default function AccountsPage() {
     return hoursDiff > 48;
   };
 
+  // Función para abrir modal de nueva cuenta (reseteando formulario)
+  const handleNewAccount = () => {
+    setFormData({
+      bankName: '',
+      alias: '',
+      accountNumber: '',
+      companyId: selectedCompanyId || '',
+      currentBalance: '0',
+    });
+    setEditingAccount(null);
+    setShowForm(true);
+  };
+
+  // Función para cerrar modal
+  const handleCloseForm = () => {
+    setShowForm(false);
+    setEditingAccount(null);
+    setFormData({
+      bankName: '',
+      alias: '',
+      accountNumber: '',
+      companyId: '',
+      currentBalance: '0',
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -186,7 +228,7 @@ export default function AccountsPage() {
             Gestiona las cuentas bancarias de las empresas
           </p>
         </div>
-        <Button onClick={() => setShowForm(true)}>
+        <Button onClick={handleNewAccount}>
           <Plus size={18} className="mr-2" />
           Nueva Cuenta
         </Button>
@@ -237,6 +279,7 @@ export default function AccountsPage() {
           <table className="w-full">
             <thead>
               <tr className="text-left text-sm text-gray-500 border-b">
+                <th className="pb-3 font-medium w-8"></th>
                 <th className="pb-3 font-medium">Banco / Alias</th>
                 <th className="pb-3 font-medium">Empresa</th>
                 <th className="pb-3 font-medium">Número de Cuenta</th>
@@ -246,8 +289,112 @@ export default function AccountsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredAccounts.map((account) => (
+              {/* Cuentas principales */}
+              {primaryAccounts.map((account) => (
+                <tr key={account.id} className="border-b last:border-0 bg-amber-50/30">
+                  <td className="py-4">
+                    <button
+                      onClick={() => handleTogglePrimary(account)}
+                      className="p-1 text-amber-500 hover:text-amber-600 transition-colors"
+                      title="Quitar de principales"
+                    >
+                      <Star size={18} fill="currentColor" />
+                    </button>
+                  </td>
+                  <td className="py-4">
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center mr-3">
+                        <span className="font-bold text-amber-600 text-sm">
+                          {account.bankName.substring(0, 2).toUpperCase()}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">{account.bankName}</p>
+                        <p className="text-sm text-gray-500">{account.alias || 'Sin alias'}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-4">
+                    <span className="text-sm text-gray-600">{getCompanyName(account.companyId)}</span>
+                  </td>
+                  <td className="py-4">
+                    <span className="text-sm text-gray-600 font-mono">{formatIbanDisplay(account.accountNumber)}</span>
+                  </td>
+                  <td className="py-4 text-right pr-6">
+                    <span className="font-semibold text-gray-900">
+                      {formatCurrency(account.currentBalance)}
+                    </span>
+                  </td>
+                  <td className="py-4 pl-6">
+                    <div className="flex flex-col">
+                      <span className="text-sm text-gray-600">
+                        {formatDateTime(account.lastUpdateDate)}
+                      </span>
+                      {isStale(account.lastUpdateDate) && (
+                        <span className="text-xs text-amber-600 flex items-center mt-1">
+                          <AlertCircle size={12} className="mr-1" />
+                          Dato antiguo
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-4">
+                    <div className="flex items-center justify-center space-x-2">
+                      <button
+                        onClick={() => handleEdit(account)}
+                        className="p-2 text-gray-400 hover:text-primary-600 transition-colors"
+                        title="Editar"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(account.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                        title="Eliminar"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {/* Separador y botón para cuentas secundarias */}
+              {secondaryAccounts.length > 0 && (
+                <tr className="border-b">
+                  <td colSpan={7} className="py-2">
+                    <button
+                      onClick={() => setShowSecondaryAccounts(!showSecondaryAccounts)}
+                      className="w-full flex items-center justify-center py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                    >
+                      {showSecondaryAccounts ? (
+                        <>
+                          <ChevronUp size={16} className="mr-2" />
+                          Ocultar otras cuentas ({secondaryAccounts.length})
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown size={16} className="mr-2" />
+                          Mostrar otras cuentas ({secondaryAccounts.length})
+                        </>
+                      )}
+                    </button>
+                  </td>
+                </tr>
+              )}
+
+              {/* Cuentas secundarias (colapsables) */}
+              {showSecondaryAccounts && secondaryAccounts.map((account) => (
                 <tr key={account.id} className="border-b last:border-0">
+                  <td className="py-4">
+                    <button
+                      onClick={() => handleTogglePrimary(account)}
+                      className="p-1 text-gray-300 hover:text-amber-500 transition-colors"
+                      title="Marcar como principal"
+                    >
+                      <Star size={18} />
+                    </button>
+                  </td>
                   <td className="py-4">
                     <div className="flex items-center">
                       <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center mr-3">
@@ -305,6 +452,15 @@ export default function AccountsPage() {
                   </td>
                 </tr>
               ))}
+
+              {/* Mensaje si no hay cuentas */}
+              {filteredAccounts.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-gray-500">
+                    No hay cuentas registradas
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -319,10 +475,7 @@ export default function AccountsPage() {
                 {editingAccount ? 'Editar Cuenta' : 'Nueva Cuenta'}
               </h2>
               <button
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingAccount(null);
-                }}
+                onClick={handleCloseForm}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X size={24} />
@@ -375,10 +528,7 @@ export default function AccountsPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setShowForm(false);
-                    setEditingAccount(null);
-                  }}
+                  onClick={handleCloseForm}
                 >
                   Cancelar
                 </Button>

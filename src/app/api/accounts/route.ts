@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
         lastUpdateDate: data.lastUpdateDate?.toDate?.() || new Date(),
         lastUpdatedBy: data.lastUpdatedBy || '',
         status: data.status || 'ACTIVE',
+        isPrimary: data.isPrimary || false,
         createdAt: data.createdAt?.toDate?.() || new Date(),
         updatedAt: data.updatedAt?.toDate?.() || new Date(),
       } as Account;

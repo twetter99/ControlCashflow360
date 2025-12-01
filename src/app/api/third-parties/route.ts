@@ -143,31 +143,43 @@ export async function GET(request: NextRequest) {
       return successResponse({ duplicates: similar });
     }
 
-    // Construir query base
-    let query: FirebaseFirestore.Query = db.collection('third_parties')
-      .where('userId', '==', userId);
+    // Construir query base - simplificada para evitar problemas de índices
+    // Primero obtenemos todos los del usuario y filtramos en memoria
+    const snapshot = await db.collection('third_parties')
+      .where('userId', '==', userId)
+      .get();
 
-    if (!includeInactive) {
-      query = query.where('isActive', '==', true);
-    }
+    console.log(`[ThirdParties] Usuario ${userId}: ${snapshot.size} terceros encontrados`);
 
+    let thirdParties = snapshot.docs
+      .map(docToThirdParty)
+      .filter(tp => includeInactive || tp.isActive);
+
+    // Filtrar por tipo si se especifica
     if (type) {
-      query = query.where('type', '==', type);
+      thirdParties = thirdParties.filter(tp => tp.type === type);
     }
 
-    const snapshot = await query.orderBy('displayName', 'asc').get();
-
-    let thirdParties = snapshot.docs.map(docToThirdParty);
-
-    // Filtrar por búsqueda de texto (en memoria para evitar índices complejos)
+    // Filtrar por búsqueda de texto
     if (search) {
       const normalizedSearch = normalizeNameForSearch(search);
-      thirdParties = thirdParties.filter(tp => 
-        tp.normalizedName.includes(normalizedSearch) ||
-        tp.displayName.toLowerCase().includes(search.toLowerCase()) ||
-        (tp.cif && tp.cif.toLowerCase().includes(search.toLowerCase()))
-      );
+      console.log(`[ThirdParties] Búsqueda: "${search}" -> normalizado: "${normalizedSearch}"`);
+      
+      thirdParties = thirdParties.filter(tp => {
+        const matchNormalized = tp.normalizedName?.includes(normalizedSearch);
+        const matchDisplay = tp.displayName.toLowerCase().includes(search.toLowerCase());
+        const matchCif = tp.cif && tp.cif.toLowerCase().includes(search.toLowerCase());
+        
+        console.log(`[ThirdParties] "${tp.displayName}" (${tp.normalizedName}): norm=${matchNormalized}, disp=${matchDisplay}, cif=${matchCif}`);
+        
+        return matchNormalized || matchDisplay || matchCif;
+      });
     }
+
+    // Ordenar alfabéticamente
+    thirdParties.sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    console.log(`[ThirdParties] Resultados finales: ${thirdParties.length}`);
 
     return successResponse(thirdParties);
   });

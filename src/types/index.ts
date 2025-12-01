@@ -64,6 +64,7 @@ export interface Account {
   lastUpdateDate: Date;
   lastUpdatedBy: string;
   status: EntityStatus;
+  isPrimary?: boolean; // Cuenta principal/favorita
   createdAt?: Date;
   updatedAt?: Date;
 }

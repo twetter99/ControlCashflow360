@@ -35,6 +35,7 @@ function mapToAccount(id: string, data: FirebaseFirestore.DocumentData): Account
     lastUpdateDate: data.lastUpdateDate?.toDate?.() || new Date(),
     lastUpdatedBy: data.lastUpdatedBy || '',
     status: data.status || 'ACTIVE',
+    isPrimary: data.isPrimary || false,
     createdAt: data.createdAt?.toDate?.() || new Date(),
     updatedAt: data.updatedAt?.toDate?.() || new Date(),
   };
@@ -124,6 +125,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       updateData.lastUpdateDate = now;
     }
     if (body.status !== undefined) updateData.status = body.status;
+    if (body.isPrimary !== undefined) updateData.isPrimary = body.isPrimary;
 
     await docRef.update(updateData);
 
