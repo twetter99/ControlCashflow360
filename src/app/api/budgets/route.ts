@@ -1,0 +1,206 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { adminDb } from '@/lib/firebase/admin';
+import { verifyAuth, handleApiError, successResponse } from '@/lib/api-utils';
+import { MonthlyBudget } from '@/types';
+
+// Colección de presupuestos mensuales
+const COLLECTION = 'monthly_budgets';
+
+/**
+ * GET /api/budgets
+ * Obtiene todos los presupuestos mensuales del usuario
+ * Query params opcionales: year (para filtrar por año)
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const userId = await verifyAuth(request);
+    const { searchParams } = new URL(request.url);
+    const yearFilter = searchParams.get('year');
+
+    let query = adminDb
+      .collection(COLLECTION)
+      .where('userId', '==', userId)
+      .orderBy('year', 'desc')
+      .orderBy('month', 'asc');
+
+    const snapshot = await query.get();
+    
+    let budgets: MonthlyBudget[] = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate(),
+      updatedAt: doc.data().updatedAt?.toDate(),
+    })) as MonthlyBudget[];
+
+    // Filtrar por año si se especifica
+    if (yearFilter) {
+      const year = parseInt(yearFilter);
+      budgets = budgets.filter(b => b.year === year);
+    }
+
+    return successResponse(budgets);
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+/**
+ * POST /api/budgets
+ * Crea o actualiza un presupuesto mensual (upsert por año/mes)
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const userId = await verifyAuth(request);
+    const body = await request.json();
+    
+    const { year, month, incomeGoal, notes } = body;
+
+    // Validaciones
+    if (!year || !month || incomeGoal === undefined) {
+      return NextResponse.json(
+        { success: false, error: 'year, month e incomeGoal son requeridos' },
+        { status: 400 }
+      );
+    }
+
+    if (month < 1 || month > 12) {
+      return NextResponse.json(
+        { success: false, error: 'month debe estar entre 1 y 12' },
+        { status: 400 }
+      );
+    }
+
+    if (incomeGoal < 0) {
+      return NextResponse.json(
+        { success: false, error: 'incomeGoal no puede ser negativo' },
+        { status: 400 }
+      );
+    }
+
+    // Buscar si ya existe un presupuesto para ese año/mes
+    const existing = await adminDb
+      .collection(COLLECTION)
+      .where('userId', '==', userId)
+      .where('year', '==', year)
+      .where('month', '==', month)
+      .limit(1)
+      .get();
+
+    const now = new Date();
+    
+    if (!existing.empty) {
+      // Actualizar existente
+      const docRef = existing.docs[0].ref;
+      await docRef.update({
+        incomeGoal,
+        notes: notes || '',
+        updatedAt: now,
+      });
+      
+      return successResponse({
+        id: docRef.id,
+        userId,
+        year,
+        month,
+        incomeGoal,
+        notes: notes || '',
+        updatedAt: now,
+      });
+    } else {
+      // Crear nuevo
+      const budgetData = {
+        userId,
+        year,
+        month,
+        incomeGoal,
+        notes: notes || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const docRef = await adminDb.collection(COLLECTION).add(budgetData);
+      
+      return successResponse({
+        id: docRef.id,
+        ...budgetData,
+      });
+    }
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+/**
+ * PUT /api/budgets
+ * Actualización masiva de presupuestos (para copiar de año anterior, etc.)
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const userId = await verifyAuth(request);
+    const body = await request.json();
+    
+    const { budgets } = body as { budgets: Array<{ year: number; month: number; incomeGoal: number; notes?: string }> };
+
+    if (!Array.isArray(budgets) || budgets.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Se requiere un array de budgets' },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date();
+    const results: MonthlyBudget[] = [];
+
+    for (const budget of budgets) {
+      const { year, month, incomeGoal, notes } = budget;
+
+      // Buscar existente
+      const existing = await adminDb
+        .collection(COLLECTION)
+        .where('userId', '==', userId)
+        .where('year', '==', year)
+        .where('month', '==', month)
+        .limit(1)
+        .get();
+
+      if (!existing.empty) {
+        // Actualizar
+        const docRef = existing.docs[0].ref;
+        await docRef.update({
+          incomeGoal,
+          notes: notes || '',
+          updatedAt: now,
+        });
+        results.push({
+          id: docRef.id,
+          userId,
+          year,
+          month,
+          incomeGoal,
+          notes,
+          updatedAt: now,
+        });
+      } else {
+        // Crear
+        const budgetData = {
+          userId,
+          year,
+          month,
+          incomeGoal,
+          notes: notes || '',
+          createdAt: now,
+          updatedAt: now,
+        };
+        const docRef = await adminDb.collection(COLLECTION).add(budgetData);
+        results.push({
+          id: docRef.id,
+          ...budgetData,
+        });
+      }
+    }
+
+    return successResponse({ updated: results.length, budgets: results });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}

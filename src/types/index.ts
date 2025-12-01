@@ -135,6 +135,21 @@ export interface CreditCard {
 }
 
 // ============================================
+// Colección: monthly_budgets (Presupuesto mensual de ingresos)
+// ============================================
+
+export interface MonthlyBudget {
+  id: string;
+  userId: string;
+  year: number;        // 2025, 2026, etc.
+  month: number;       // 1-12 (Enero=1, Diciembre=12)
+  incomeGoal: number;  // Objetivo de ingresos para ese mes
+  notes?: string;      // Notas opcionales
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// ============================================
 // Colección: transactions (Movimientos)
 // ============================================
 

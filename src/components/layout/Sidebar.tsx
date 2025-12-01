@@ -13,6 +13,7 @@ import {
   Bell,
   Settings,
   Building2,
+  Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +30,7 @@ const navItems: NavItem[] = [
   { href: '/transactions', label: 'Movimientos', icon: <ArrowUpDown size={20} /> },
   { href: '/credit-lines', label: 'Pólizas', icon: <Receipt size={20} /> },
   { href: '/credit-cards', label: 'Tarjetas', icon: <CreditCard size={20} /> },
+  { href: '/budget', label: 'Presupuesto', icon: <Target size={20} /> },
   { href: '/alerts', label: 'Alertas', icon: <Bell size={20} /> },
   { href: '/companies', label: 'Empresas', icon: <Building2 size={20} /> },
   { href: '/settings', label: 'Configuración', icon: <Settings size={20} /> },

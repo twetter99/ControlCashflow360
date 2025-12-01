@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { 
   Settings,
@@ -19,8 +19,6 @@ import {
   Copy,
   Sparkles,
   CheckCircle2,
-  Target,
-  TrendingUp
 } from 'lucide-react';
 import { auth } from '@/lib/firebase/config';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
@@ -131,12 +129,6 @@ export default function SettingsPage() {
   const [fixingDates, setFixingDates] = useState(false);
   const [migratingThirdParties, setMigratingThirdParties] = useState(false);
   
-  // Estado para objetivo mensual de ingresos
-  const [monthlyIncomeGoal, setMonthlyIncomeGoal] = useState<string>('');
-  const [loadingGoal, setLoadingGoal] = useState(true);
-  const [savingGoal, setSavingGoal] = useState(false);
-  const [goalMessage, setGoalMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  
   // Estados para cambio de contraseña
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -187,71 +179,6 @@ export default function SettingsPage() {
       uniqueNames: number;
     };
   } | null>(null);
-
-  // Cargar objetivo mensual al iniciar
-  useEffect(() => {
-    const loadGoal = async () => {
-      try {
-        if (!auth?.currentUser) return;
-        const token = await auth.currentUser.getIdToken();
-        const response = await fetch('/api/user-settings', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success && result.data?.monthlyIncomeGoal) {
-            setMonthlyIncomeGoal(result.data.monthlyIncomeGoal.toString());
-          }
-        }
-      } catch (error) {
-        console.error('Error cargando objetivo:', error);
-      } finally {
-        setLoadingGoal(false);
-      }
-    };
-    loadGoal();
-  }, []);
-
-  // Guardar objetivo mensual
-  const handleSaveGoal = async () => {
-    setSavingGoal(true);
-    setGoalMessage(null);
-    
-    try {
-      if (!auth?.currentUser) throw new Error('No autenticado');
-      
-      const goalValue = parseFloat(monthlyIncomeGoal.replace(/[^\d.-]/g, ''));
-      if (isNaN(goalValue) || goalValue < 0) {
-        setGoalMessage({ type: 'error', text: 'Introduce un valor válido' });
-        return;
-      }
-      
-      const token = await auth.currentUser.getIdToken();
-      const response = await fetch('/api/user-settings', {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ monthlyIncomeGoal: goalValue })
-      });
-      
-      const result = await response.json();
-      if (result.success) {
-        setGoalMessage({ type: 'success', text: '¡Objetivo guardado correctamente!' });
-        setTimeout(() => setGoalMessage(null), 3000);
-      } else {
-        throw new Error(result.error);
-      }
-    } catch (error) {
-      setGoalMessage({ 
-        type: 'error', 
-        text: error instanceof Error ? error.message : 'Error guardando objetivo'
-      });
-    } finally {
-      setSavingGoal(false);
-    }
-  };
 
   // Generar nueva contraseña
   const handleGeneratePassword = useCallback(() => {
@@ -551,97 +478,6 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                 </form>
-              </Card>
-
-              {/* Objetivos de Ingresos */}
-              <Card 
-                title="Objetivos de Ingresos" 
-                subtitle="Define tu meta mensual para el Sistema de 3 Capas"
-              >
-                <div className="space-y-4">
-                  {/* Mensaje de estado */}
-                  {goalMessage && (
-                    <div className={`p-4 rounded-lg flex items-start gap-3 ${
-                      goalMessage.type === 'success' 
-                        ? 'bg-green-50 border border-green-200' 
-                        : 'bg-red-50 border border-red-200'
-                    }`}>
-                      {goalMessage.type === 'success' ? (
-                        <CheckCircle2 className="text-green-600 mt-0.5 flex-shrink-0" size={20} />
-                      ) : (
-                        <AlertCircle className="text-red-600 mt-0.5 flex-shrink-0" size={20} />
-                      )}
-                      <span className={goalMessage.type === 'success' ? 'text-green-800' : 'text-red-800'}>
-                        {goalMessage.text}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Explicación del sistema de 3 capas */}
-                  <div className="bg-gradient-to-r from-primary-50 to-blue-50 border border-primary-200 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <TrendingUp className="text-primary-600 mt-0.5 flex-shrink-0" size={20} />
-                      <div className="text-sm text-gray-700">
-                        <p className="font-medium text-primary-800 mb-2">Sistema de 3 Capas de Ingresos</p>
-                        <ul className="space-y-1">
-                          <li className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-                            <strong>Capa 1 (Facturado):</strong> Ingresos con factura emitida
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-green-400"></span>
-                            <strong>Capa 2 (Contratos):</strong> Ingresos recurrentes de alta certeza
-                          </li>
-                          <li className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-gray-400"></span>
-                            <strong>Capa 3 (Por cerrar):</strong> Ingresos estimados por confirmar
-                          </li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Campo de objetivo */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Objetivo de Ingresos Mensual
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={monthlyIncomeGoal}
-                        onChange={(e) => {
-                          // Permitir solo números, puntos y comas
-                          const value = e.target.value.replace(/[^\d.,]/g, '');
-                          setMonthlyIncomeGoal(value);
-                        }}
-                        placeholder={loadingGoal ? 'Cargando...' : 'Ej: 50000'}
-                        disabled={loadingGoal}
-                        className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors disabled:bg-gray-100"
-                      />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">
-                        €
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Este valor aparecerá en el Dashboard como meta mensual
-                    </p>
-                  </div>
-
-                  <div className="pt-2 flex justify-end">
-                    <Button 
-                      onClick={handleSaveGoal} 
-                      disabled={savingGoal || loadingGoal || !monthlyIncomeGoal}
-                    >
-                      {savingGoal ? (
-                        <RefreshCw className="animate-spin mr-2" size={18} />
-                      ) : (
-                        <Target size={18} className="mr-2" />
-                      )}
-                      Guardar Objetivo
-                    </Button>
-                  </div>
-                </div>
               </Card>
             </>
           )}

@@ -134,19 +134,30 @@ export default function DashboardPage() {
     loadData();
   }, [user]);
 
-  // Cargar objetivo mensual de ingresos
+  // Cargar objetivo mensual de ingresos desde la nueva API de budgets
   useEffect(() => {
     const loadGoal = async () => {
       try {
         if (!auth?.currentUser) return;
+        
+        const currentMonth = new Date().getMonth() + 1; // 1-12
+        const currentYear = new Date().getFullYear();
+        
         const token = await auth.currentUser.getIdToken();
-        const response = await fetch('/api/user-settings', {
+        const response = await fetch(`/api/budgets?year=${currentYear}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
+        
         if (response.ok) {
           const result = await response.json();
-          if (result.success && result.data?.monthlyIncomeGoal) {
-            setMonthlyIncomeGoal(result.data.monthlyIncomeGoal);
+          if (result.success && result.data) {
+            // Buscar el presupuesto del mes actual
+            const currentBudget = result.data.find(
+              (b: { month: number; incomeGoal: number }) => b.month === currentMonth
+            );
+            if (currentBudget?.incomeGoal) {
+              setMonthlyIncomeGoal(currentBudget.incomeGoal);
+            }
           }
         }
       } catch (error) {
@@ -798,8 +809,8 @@ export default function DashboardPage() {
                 <span className="w-3 h-3 rounded-full bg-gray-400"></span>
                 <span>Por cerrar (resto)</span>
               </div>
-              <Link href="/settings" className="ml-auto text-primary-600 hover:text-primary-700 font-medium">
-                Configurar objetivo →
+              <Link href="/budget" className="ml-auto text-primary-600 hover:text-primary-700 font-medium">
+                Gestionar presupuesto →
               </Link>
             </div>
           </div>
