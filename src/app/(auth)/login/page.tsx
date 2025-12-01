@@ -4,13 +4,21 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Input } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
+import { Clock } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, login, loginWithGoogle, loading, error } = useAuth();
+  const { user, login, loginWithGoogle, loading, error, sessionExpired, clearSessionExpired } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
+
+  // Limpiar mensaje de sesión expirada cuando el usuario empiece a escribir
+  useEffect(() => {
+    if (sessionExpired && (email || password)) {
+      clearSessionExpired();
+    }
+  }, [email, password, sessionExpired, clearSessionExpired]);
 
   // Redirigir si ya está autenticado
   useEffect(() => {
@@ -87,6 +95,24 @@ export default function LoginPage() {
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        {/* Aviso de sesión expirada */}
+        {sessionExpired && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <Clock className="w-5 h-5 text-amber-600 mt-0.5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-amber-800">
+                Sesión cerrada por inactividad
+              </h3>
+              <p className="mt-1 text-sm text-amber-700">
+                Por seguridad, tu sesión fue cerrada automáticamente. 
+                Por favor, inicia sesión nuevamente.
+              </p>
+            </div>
+          </div>
+        )}
+        
         <div className="bg-white py-8 px-6 shadow-sm rounded-xl border border-gray-200">
           <form onSubmit={handleSubmit} className="space-y-6">
             <Input

@@ -1,11 +1,19 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { User } from 'firebase/auth';
 import { onAuthChange, signIn, signOut, signInWithGoogle } from '@/lib/firebase/auth';
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { UserProfile, UserRole } from '@/types';
+import { useIdleTimeout } from '@/hooks/useIdleTimeout';
+import { IdleWarningModal } from '@/components/auth/IdleWarningModal';
+
+// Configuración de timeout de sesión (en minutos)
+const SESSION_CONFIG = {
+  idleTime: 15,      // 15 minutos de inactividad
+  warningTime: 60,   // 60 segundos de aviso antes de cerrar
+};
 
 interface AuthContextType {
   user: User | null;
@@ -15,6 +23,10 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
+  /** Si la sesión se cerró por inactividad */
+  sessionExpired: boolean;
+  /** Resetear el estado de sesión expirada */
+  clearSessionExpired: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,6 +36,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Función de logout (definida antes del hook para evitar dependencias circulares)
+  const performLogout = useCallback(async (isTimeout = false) => {
+    try {
+      await signOut();
+      if (isTimeout) {
+        setSessionExpired(true);
+      }
+    } catch (err) {
+      console.error('Error al cerrar sesión:', err);
+    }
+  }, []);
+
+  // Hook de inactividad
+  const {
+    showWarning,
+    remainingSeconds,
+    extendSession,
+  } = useIdleTimeout({
+    idleTime: SESSION_CONFIG.idleTime,
+    warningTime: SESSION_CONFIG.warningTime,
+    onTimeout: () => performLogout(true),
+    enabled: !!user, // Solo activo cuando hay usuario logueado
+  });
+
+  // Limpiar estado de sesión expirada
+  const clearSessionExpired = useCallback(() => {
+    setSessionExpired(false);
+  }, []);
 
   // Cargar perfil de usuario desde Firestore
   const loadUserProfile = async (firebaseUser: User): Promise<UserProfile | null> => {
@@ -175,9 +217,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         loginWithGoogle,
         logout,
+        sessionExpired,
+        clearSessionExpired,
       }}
     >
       {children}
+      
+      {/* Modal de aviso de inactividad */}
+      <IdleWarningModal
+        isOpen={showWarning}
+        remainingSeconds={remainingSeconds}
+        onExtend={extendSession}
+        onLogout={() => performLogout(false)}
+      />
     </AuthContext.Provider>
   );
 }
