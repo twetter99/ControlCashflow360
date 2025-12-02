@@ -37,9 +37,11 @@ interface ForecastBucket {
   monthNames: string;      // "Diciembre" o "Diciembre-Enero" si cruza meses
   startDay: number;        // Día inicial del período (0, 31, 61)
   endDay: number;          // Día final del período (30, 60, 90)
-  incomes: number;         // Cobros SOLO de este período
+  incomes: number;         // Cobros REALES de transacciones en este período
+  estimatedIncomes: number; // Cobros ESTIMADOS del presupuesto mensual
+  effectiveIncomes: number; // Cobros efectivos (real si hay, si no estimado)
   expenses: number;        // Pagos SOLO de este período
-  netFlow: number;         // Flujo neto de este período (incomes - expenses)
+  netFlow: number;         // Flujo neto de este período (effectiveIncomes - expenses)
   cumulativeBalance: number; // Saldo acumulado (saldo inicial + todos los flujos hasta este bucket)
 }
 
@@ -75,6 +77,9 @@ export default function DashboardPage() {
   
   // Objetivo mensual de ingresos (Sistema 3 Capas)
   const [monthlyIncomeGoal, setMonthlyIncomeGoal] = useState<number>(0);
+  
+  // Todos los presupuestos mensuales (para previsiones)
+  const [allBudgets, setAllBudgets] = useState<{ year: number; month: number; incomeGoal: number }[]>([]);
 
   /**
    * Determina la capa del ingreso basada en la lógica del Sistema de 3 Capas:
@@ -134,37 +139,64 @@ export default function DashboardPage() {
     loadData();
   }, [user]);
 
-  // Cargar objetivo mensual de ingresos desde la nueva API de budgets
+  // Cargar presupuestos mensuales desde la API
   useEffect(() => {
-    const loadGoal = async () => {
+    const loadBudgets = async () => {
       try {
         if (!auth?.currentUser) return;
         
         const currentMonth = new Date().getMonth() + 1; // 1-12
         const currentYear = new Date().getFullYear();
+        const nextYear = currentYear + 1;
         
         const token = await auth.currentUser.getIdToken();
-        const response = await fetch(`/api/budgets?year=${currentYear}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
         
-        if (response.ok) {
-          const result = await response.json();
+        // Cargar budgets del año actual y siguiente (para previsiones a 90 días)
+        const [responseCurrentYear, responseNextYear] = await Promise.all([
+          fetch(`/api/budgets?year=${currentYear}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }),
+          fetch(`/api/budgets?year=${nextYear}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+        ]);
+        
+        const budgets: { year: number; month: number; incomeGoal: number }[] = [];
+        
+        if (responseCurrentYear.ok) {
+          const result = await responseCurrentYear.json();
           if (result.success && result.data) {
-            // Buscar el presupuesto del mes actual
-            const currentBudget = result.data.find(
-              (b: { month: number; incomeGoal: number }) => b.month === currentMonth
-            );
-            if (currentBudget?.incomeGoal) {
-              setMonthlyIncomeGoal(currentBudget.incomeGoal);
-            }
+            budgets.push(...result.data.map((b: { year: number; month: number; incomeGoal: number }) => ({
+              year: b.year,
+              month: b.month,
+              incomeGoal: b.incomeGoal || 0
+            })));
           }
         }
+        
+        if (responseNextYear.ok) {
+          const result = await responseNextYear.json();
+          if (result.success && result.data) {
+            budgets.push(...result.data.map((b: { year: number; month: number; incomeGoal: number }) => ({
+              year: b.year,
+              month: b.month,
+              incomeGoal: b.incomeGoal || 0
+            })));
+          }
+        }
+        
+        setAllBudgets(budgets);
+        
+        // Establecer objetivo del mes actual
+        const currentBudget = budgets.find(b => b.month === currentMonth && b.year === currentYear);
+        if (currentBudget?.incomeGoal) {
+          setMonthlyIncomeGoal(currentBudget.incomeGoal);
+        }
       } catch (error) {
-        console.error('Error cargando objetivo mensual:', error);
+        console.error('Error cargando presupuestos:', error);
       }
     };
-    loadGoal();
+    loadBudgets();
   }, [user]);
 
   // Filtrar por empresa si está seleccionada
@@ -230,6 +262,7 @@ export default function DashboardPage() {
   /**
    * Calcula los buckets de previsión con saldo acumulativo
    * El saldo de cada período arrastra el resultado del período anterior
+   * Incluye ingresos estimados del presupuesto mensual
    */
   const calculateForecastBuckets = (): ForecastBucket[] => {
     const filteredTxs = getFilteredByScenario(pendingTransactions);
@@ -240,6 +273,48 @@ export default function DashboardPage() {
       { label: 'Días 31-60', startDay: 31, endDay: 60 },
       { label: 'Días 61-90', startDay: 61, endDay: 90 },
     ];
+    
+    /**
+     * Obtiene el presupuesto estimado para un período que puede abarcar varios meses
+     * Prorratea el presupuesto mensual según los días que caen en cada mes
+     */
+    const getEstimatedIncomeForPeriod = (startDate: Date, endDate: Date): number => {
+      let totalEstimated = 0;
+      const currentDate = new Date(startDate);
+      
+      while (currentDate <= endDate) {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1; // 1-12
+        
+        // Buscar presupuesto de este mes
+        const budget = allBudgets.find(b => b.year === year && b.month === month);
+        const monthlyBudget = budget?.incomeGoal || 0;
+        
+        if (monthlyBudget > 0) {
+          // Calcular días de este mes que caen en el período
+          const daysInMonth = new Date(year, month, 0).getDate();
+          const monthStart = new Date(year, month - 1, 1);
+          const monthEnd = new Date(year, month - 1, daysInMonth, 23, 59, 59);
+          
+          // Rango efectivo dentro del período
+          const effectiveStart = startDate > monthStart ? startDate : monthStart;
+          const effectiveEnd = endDate < monthEnd ? endDate : monthEnd;
+          
+          // Días del período que caen en este mes
+          const daysInPeriod = Math.max(0, Math.ceil((effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+          
+          // Prorratear el presupuesto mensual
+          const proratedAmount = (monthlyBudget / daysInMonth) * daysInPeriod;
+          totalEstimated += proratedAmount;
+        }
+        
+        // Avanzar al siguiente mes
+        currentDate.setMonth(currentDate.getMonth() + 1);
+        currentDate.setDate(1);
+      }
+      
+      return totalEstimated;
+    };
     
     let runningBalance = totalBankBalance; // Empezamos con el saldo actual en bancos
     
@@ -268,16 +343,23 @@ export default function DashboardPage() {
         return dueDate >= startDate && dueDate <= endDate;
       });
       
-      // Calcular cobros y pagos del período
+      // Calcular cobros REALES (transacciones) del período
       const incomes = txsInPeriod
         .filter(tx => tx.type === 'INCOME')
         .reduce((sum, tx) => sum + tx.amount, 0);
+      
+      // Calcular cobros ESTIMADOS (del presupuesto) del período
+      const estimatedIncomes = getEstimatedIncomeForPeriod(startDate, endDate);
+      
+      // Cobros efectivos: usar reales si hay, si no usar estimados
+      const effectiveIncomes = incomes > 0 ? incomes : estimatedIncomes;
       
       const expenses = txsInPeriod
         .filter(tx => tx.type === 'EXPENSE')
         .reduce((sum, tx) => sum + tx.amount, 0);
       
-      const netFlow = incomes - expenses;
+      // Flujo neto usa los ingresos efectivos
+      const netFlow = effectiveIncomes - expenses;
       
       // Acumular al saldo corriente (ARRASTRA del período anterior)
       runningBalance = runningBalance + netFlow;
@@ -289,6 +371,8 @@ export default function DashboardPage() {
         startDay: period.startDay,
         endDay: period.endDay,
         incomes,
+        estimatedIncomes,
+        effectiveIncomes,
         expenses,
         netFlow,
         cumulativeBalance: runningBalance,
@@ -498,17 +582,27 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="space-y-2">
+                {/* Cobros Estimados (del presupuesto) */}
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros previstos</span>
-                  <span className="font-semibold text-green-600">+{formatCurrency(bucket30d?.incomes || 0)}</span>
+                  <span className="text-gray-500 text-sm">Cobros estimados</span>
+                  <span className={`font-medium ${(bucket30d?.estimatedIncomes || 0) > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    +{formatCurrency(bucket30d?.estimatedIncomes || 0)}
+                  </span>
+                </div>
+                {/* Cobros Reales (transacciones) */}
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500 text-sm">Cobros reales</span>
+                  <span className={`font-semibold ${(bucket30d?.incomes || 0) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    {(bucket30d?.incomes || 0) > 0 ? `+${formatCurrency(bucket30d?.incomes || 0)}` : '—'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Pagos previstos</span>
                   <span className="font-semibold text-red-600">-{formatCurrency(bucket30d?.expenses || 0)}</span>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Flujo neto período</span>
-                  <span className={`font-medium ${(bucket30d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className="flex justify-between items-center text-sm border-t pt-2">
+                  <span className="text-gray-600 font-medium">Flujo neto período</span>
+                  <span className={`font-bold ${(bucket30d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {(bucket30d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket30d?.netFlow || 0)}
                   </span>
                 </div>
@@ -520,6 +614,9 @@ export default function DashboardPage() {
                     {formatCurrency(bucket30d?.cumulativeBalance || 0)}
                   </span>
                 </div>
+                {(bucket30d?.incomes || 0) === 0 && (bucket30d?.estimatedIncomes || 0) > 0 && (
+                  <p className="text-xs text-amber-600 mt-1">Usando estimado (sin transacciones reales)</p>
+                )}
               </div>
             </div>
           </Card>
@@ -542,17 +639,27 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="space-y-2">
+                {/* Cobros Estimados (del presupuesto) */}
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros previstos</span>
-                  <span className="font-semibold text-green-600">+{formatCurrency(bucket60d?.incomes || 0)}</span>
+                  <span className="text-gray-500 text-sm">Cobros estimados</span>
+                  <span className={`font-medium ${(bucket60d?.estimatedIncomes || 0) > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    +{formatCurrency(bucket60d?.estimatedIncomes || 0)}
+                  </span>
+                </div>
+                {/* Cobros Reales (transacciones) */}
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500 text-sm">Cobros reales</span>
+                  <span className={`font-semibold ${(bucket60d?.incomes || 0) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    {(bucket60d?.incomes || 0) > 0 ? `+${formatCurrency(bucket60d?.incomes || 0)}` : '—'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Pagos previstos</span>
                   <span className="font-semibold text-red-600">-{formatCurrency(bucket60d?.expenses || 0)}</span>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Flujo neto período</span>
-                  <span className={`font-medium ${(bucket60d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className="flex justify-between items-center text-sm border-t pt-2">
+                  <span className="text-gray-600 font-medium">Flujo neto período</span>
+                  <span className={`font-bold ${(bucket60d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {(bucket60d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket60d?.netFlow || 0)}
                   </span>
                 </div>
@@ -587,17 +694,27 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="space-y-2">
+                {/* Cobros Estimados (del presupuesto) */}
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros previstos</span>
-                  <span className="font-semibold text-green-600">+{formatCurrency(bucket90d?.incomes || 0)}</span>
+                  <span className="text-gray-500 text-sm">Cobros estimados</span>
+                  <span className={`font-medium ${(bucket90d?.estimatedIncomes || 0) > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                    +{formatCurrency(bucket90d?.estimatedIncomes || 0)}
+                  </span>
+                </div>
+                {/* Cobros Reales (transacciones) */}
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500 text-sm">Cobros reales</span>
+                  <span className={`font-semibold ${(bucket90d?.incomes || 0) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    {(bucket90d?.incomes || 0) > 0 ? `+${formatCurrency(bucket90d?.incomes || 0)}` : '—'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 text-sm">Pagos previstos</span>
                   <span className="font-semibold text-red-600">-{formatCurrency(bucket90d?.expenses || 0)}</span>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Flujo neto período</span>
-                  <span className={`font-medium ${(bucket90d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className="flex justify-between items-center text-sm border-t pt-2">
+                  <span className="text-gray-600 font-medium">Flujo neto período</span>
+                  <span className={`font-bold ${(bucket90d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {(bucket90d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket90d?.netFlow || 0)}
                   </span>
                 </div>
