@@ -17,13 +17,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const yearFilter = searchParams.get('year');
 
-    let query = adminDb
+    // Query simple sin orderBy compuesto (evita necesitar índice)
+    const snapshot = await adminDb
       .collection(COLLECTION)
       .where('userId', '==', userId)
-      .orderBy('year', 'desc')
-      .orderBy('month', 'asc');
-
-    const snapshot = await query.get();
+      .get();
     
     let budgets: MonthlyBudget[] = snapshot.docs.map(doc => ({
       id: doc.id,
@@ -37,6 +35,12 @@ export async function GET(request: NextRequest) {
       const year = parseInt(yearFilter);
       budgets = budgets.filter(b => b.year === year);
     }
+
+    // Ordenar en memoria: por año desc, luego por mes asc
+    budgets.sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return a.month - b.month;
+    });
 
     return successResponse(budgets);
   } catch (error) {
