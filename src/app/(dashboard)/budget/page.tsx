@@ -30,6 +30,61 @@ const MONTH_NAMES = [
 const MIN_YEAR = 2025;
 const MIN_MONTH = 12; // Diciembre
 
+/**
+ * Parser robusto para importes en formato español/europeo e inglés
+ * Maneja:
+ * - "41187,49" → 41187.49 (coma decimal español)
+ * - "41.187,49" → 41187.49 (miles con punto, decimal con coma)
+ * - "41187.49" → 41187.49 (punto decimal inglés)
+ * - "4.118.749" → 4118749 (solo miles con punto)
+ * - "€ 41.187,49" → 41187.49 (con símbolo)
+ */
+function parseCurrencyInput(value: string): number {
+  if (!value || typeof value !== 'string') return 0;
+  
+  // Limpiar espacios, símbolo € y otros caracteres no numéricos excepto . , -
+  let cleaned = value.replace(/[€\s]/g, '').trim();
+  
+  // Si está vacío después de limpiar, retornar 0
+  if (!cleaned) return 0;
+  
+  // Detectar el formato basado en la posición de puntos y comas
+  const hasComma = cleaned.includes(',');
+  const hasDot = cleaned.includes('.');
+  
+  if (hasComma && hasDot) {
+    // Formato mixto: determinar cuál es el decimal (el último separador)
+    const lastComma = cleaned.lastIndexOf(',');
+    const lastDot = cleaned.lastIndexOf('.');
+    
+    if (lastComma > lastDot) {
+      // Formato europeo: 41.187,49 → la coma es decimal
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Formato inglés: 41,187.49 → el punto es decimal
+      cleaned = cleaned.replace(/,/g, '');
+    }
+  } else if (hasComma && !hasDot) {
+    // Solo coma: asumir formato español (coma = decimal)
+    // Ej: "41187,49" → 41187.49
+    cleaned = cleaned.replace(',', '.');
+  } else if (hasDot && !hasComma) {
+    // Solo punto: determinar si es decimal o separador de miles
+    const parts = cleaned.split('.');
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Un solo punto con 1-2 decimales: es decimal (ej: "41187.49")
+      // No hacer nada, ya está en formato correcto
+    } else {
+      // Múltiples puntos o patrón de miles: quitar puntos (ej: "4.118.749")
+      cleaned = cleaned.replace(/\./g, '');
+    }
+  }
+  
+  // Parsear el número limpio
+  const result = parseFloat(cleaned);
+  return isNaN(result) ? 0 : Math.abs(result); // Solo positivos para presupuestos
+}
+
 interface BudgetFormData {
   [key: string]: number; // key = "month-1" a "month-12"
 }
@@ -90,9 +145,9 @@ export default function BudgetPage() {
     return false;
   };
 
-  // Manejar cambio en input
+  // Manejar cambio en input - usa parser robusto para formato español
   const handleInputChange = (month: number, value: string) => {
-    const numValue = parseFloat(value.replace(/[^\d.-]/g, '')) || 0;
+    const numValue = parseCurrencyInput(value);
     setFormData(prev => ({
       ...prev,
       [`month-${month}`]: numValue
@@ -345,7 +400,8 @@ export default function BudgetPage() {
               <p className="text-sm text-gray-600">Aplicar a todos</p>
               <div className="flex gap-2 mt-1">
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="Valor"
                   className="w-24 px-2 py-1 text-sm border rounded"
                   id="apply-all-value"
@@ -353,7 +409,7 @@ export default function BudgetPage() {
                 <button
                   onClick={() => {
                     const input = document.getElementById('apply-all-value') as HTMLInputElement;
-                    const value = parseFloat(input.value) || 0;
+                    const value = parseCurrencyInput(input.value);
                     if (value > 0) handleApplyToAll(value);
                   }}
                   className="px-3 py-1 text-sm bg-amber-500 text-white rounded hover:bg-amber-600 transition-colors"
@@ -399,10 +455,11 @@ export default function BudgetPage() {
                 <div className="relative">
                   <input
                     type="text"
-                    value={enabled ? (value > 0 ? value.toLocaleString('es-ES') : '') : ''}
+                    inputMode="decimal"
+                    value={enabled ? (value > 0 ? value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '') : ''}
                     onChange={(e) => handleInputChange(month, e.target.value)}
                     disabled={!enabled}
-                    placeholder={enabled ? '0' : 'No disponible'}
+                    placeholder={enabled ? '0,00' : 'No disponible'}
                     className={`w-full px-3 py-2 pr-8 border rounded-lg text-right font-medium transition-colors ${
                       enabled
                         ? 'border-gray-300 focus:border-primary-500 focus:ring-2 focus:ring-primary-200'
