@@ -201,17 +201,16 @@ export async function generateTransactionsFromRecurrence(
     skippedCount: 0,
   };
   
-  // Calcular fecha límite de generación
-  const maxDate = new Date(fromDate);
+  // Calcular fecha límite de generación (siempre desde HOY + monthsAhead)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const maxDate = new Date(today);
   maxDate.setMonth(maxDate.getMonth() + monthsAhead);
   
-  // Obtener las fechas desde lastGeneratedDate o startDate
-  const startFrom = recurrence.lastGeneratedDate 
-    ? new Date(Math.max(
-        new Date(recurrence.lastGeneratedDate).getTime(),
-        new Date(recurrence.startDate).getTime()
-      ))
-    : new Date(recurrence.startDate);
+  // Obtener la fecha de inicio para generar
+  // Siempre empezar desde la fecha original de la recurrencia para no perder ocurrencias
+  // El sistema de skipExisting evitará duplicados
+  const startFrom = new Date(recurrence.startDate);
   
   // Generar fechas de ocurrencia
   const dates = generateOccurrenceDates(

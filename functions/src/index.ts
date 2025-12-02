@@ -593,14 +593,13 @@ export const generateRecurrences = functions.pubsub
             continue;
           }
 
-          // Calcular fecha límite de generación
+          // Calcular fecha límite de generación (ventana deslizante de 6 meses desde hoy)
           const maxDate = new Date(today);
           maxDate.setMonth(maxDate.getMonth() + recurrence.generateMonthsAhead);
 
-          // Determinar desde cuándo generar
-          const generateFrom = recurrence.lastGeneratedDate 
-            ? new Date(Math.max(recurrence.lastGeneratedDate.getTime(), today.getTime()))
-            : recurrence.startDate;
+          // Siempre empezar desde startDate - el sistema de skipExisting evita duplicados
+          // Esto garantiza que no se pierdan ocurrencias intermedias
+          const generateFrom = recurrence.startDate;
 
           // Generar fechas de ocurrencia
           const dates = generateOccurrenceDates(

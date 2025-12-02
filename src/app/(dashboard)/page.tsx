@@ -18,7 +18,9 @@ import {
   BarChart3,
   FileText,
   RefreshCw,
-  Check
+  Check,
+  X,
+  ExternalLink
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Link from 'next/link';
@@ -43,6 +45,18 @@ interface ForecastBucket {
   expenses: number;        // Pagos SOLO de este período
   netFlow: number;         // Flujo neto de este período (effectiveIncomes - expenses)
   cumulativeBalance: number; // Saldo acumulado (saldo inicial + todos los flujos hasta este bucket)
+  incomeTransactions: Transaction[];  // Transacciones de cobros del período
+  expenseTransactions: Transaction[]; // Transacciones de pagos del período
+}
+
+// Tipo para el modal de detalle
+interface TransactionDetailModal {
+  isOpen: boolean;
+  title: string;
+  type: 'INCOME' | 'EXPENSE';
+  transactions: Transaction[];
+  total: number;
+  monthLabel: string;
 }
 
 /*
@@ -80,6 +94,16 @@ export default function DashboardPage() {
   
   // Todos los presupuestos mensuales (para previsiones)
   const [allBudgets, setAllBudgets] = useState<{ year: number; month: number; incomeGoal: number }[]>([]);
+  
+  // Modal de detalle de transacciones
+  const [detailModal, setDetailModal] = useState<TransactionDetailModal>({
+    isOpen: false,
+    title: '',
+    type: 'INCOME',
+    transactions: [],
+    total: 0,
+    monthLabel: ''
+  });
 
   /**
    * Determina la capa del ingreso basada en la lógica del Sistema de 3 Capas:
@@ -103,17 +127,18 @@ export default function DashboardPage() {
         setLoading(true);
         
         // Primero regenerar recurrencias para asegurar transacciones futuras
-        // Solo regenerar si han pasado más de 6 horas desde la última vez
-        // (la Cloud Function corre diariamente, esto es un respaldo)
+        // Regenerar cada hora para mantener ventana deslizante de 6 meses
+        // (la Cloud Function corre diariamente a las 6 AM, esto es un respaldo)
         try {
           const lastRegenKey = 'winfin_last_recurrence_regen';
           const lastRegen = localStorage.getItem(lastRegenKey);
-          const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
+          const oneHourAgo = Date.now() - (1 * 60 * 60 * 1000);
           
-          if (!lastRegen || parseInt(lastRegen) < sixHoursAgo) {
-            await recurrencesApi.regenerate();
+          if (!lastRegen || parseInt(lastRegen) < oneHourAgo) {
+            // Regenerar con 6 meses de ventana desde hoy
+            await recurrencesApi.regenerate(undefined, 6);
             localStorage.setItem(lastRegenKey, String(Date.now()));
-            console.log('[Dashboard] Recurrencias regeneradas correctamente');
+            console.log('[Dashboard] Recurrencias regeneradas correctamente (ventana 6 meses)');
           }
         } catch (regenError) {
           // No bloquear si falla la regeneración, solo log
@@ -260,103 +285,91 @@ export default function DashboardPage() {
   };
 
   /**
-   * Calcula los buckets de previsión con saldo acumulativo
-   * El saldo de cada período arrastra el resultado del período anterior
-   * Incluye ingresos estimados del presupuesto mensual
+   * Calcula los buckets de previsión MENSUALES con saldo acumulativo
+   * Cada bucket representa UN MES COMPLETO (no rangos de 30 días)
+   * El saldoAcumulado arrastra el resultado de los meses anteriores
    */
   const calculateForecastBuckets = (): ForecastBucket[] => {
     const filteredTxs = getFilteredByScenario(pendingTransactions);
     
-    // Definición de los períodos (en días desde hoy)
-    const periodDefinitions = [
-      { label: 'Próximos 30 días', startDay: 0, endDay: 30 },
-      { label: 'Días 31-60', startDay: 31, endDay: 60 },
-      { label: 'Días 61-90', startDay: 61, endDay: 90 },
-    ];
-    
-    /**
-     * Obtiene el presupuesto estimado para un período que puede abarcar varios meses
-     * Prorratea el presupuesto mensual según los días que caen en cada mes
-     */
-    const getEstimatedIncomeForPeriod = (startDate: Date, endDate: Date): number => {
-      let totalEstimated = 0;
-      const currentDate = new Date(startDate);
+    // Generar los próximos 4 meses naturales a partir de hoy
+    const generateMonthlyPeriods = () => {
+      const periods: { year: number; month: number; label: string; startDate: Date; endDate: Date; dateRange: string }[] = [];
+      const currentDate = new Date(today);
       
-      while (currentDate <= endDate) {
+      for (let i = 0; i < 4; i++) {
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth() + 1; // 1-12
+        const month = currentDate.getMonth(); // 0-11
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
         
-        // Buscar presupuesto de este mes
-        const budget = allBudgets.find(b => b.year === year && b.month === month);
-        const monthlyBudget = budget?.incomeGoal || 0;
+        // Para el primer mes, empezar desde hoy; para los demás, desde el día 1
+        const startDate = i === 0 
+          ? new Date(today) 
+          : new Date(year, month, 1);
+        startDate.setHours(0, 0, 0, 0);
         
-        if (monthlyBudget > 0) {
-          // Calcular días de este mes que caen en el período
-          const daysInMonth = new Date(year, month, 0).getDate();
-          const monthStart = new Date(year, month - 1, 1);
-          const monthEnd = new Date(year, month - 1, daysInMonth, 23, 59, 59);
-          
-          // Rango efectivo dentro del período
-          const effectiveStart = startDate > monthStart ? startDate : monthStart;
-          const effectiveEnd = endDate < monthEnd ? endDate : monthEnd;
-          
-          // Días del período que caen en este mes
-          const daysInPeriod = Math.max(0, Math.ceil((effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-          
-          // Prorratear el presupuesto mensual
-          const proratedAmount = (monthlyBudget / daysInMonth) * daysInPeriod;
-          totalEstimated += proratedAmount;
-        }
+        const endDate = new Date(year, month, daysInMonth, 23, 59, 59, 999);
+        
+        const monthName = getMonthName(startDate);
+        const dateRange = `${startDate.getDate()} ${monthName.substring(0, 3)} - ${endDate.getDate()} ${monthName.substring(0, 3)} ${year}`;
+        
+        periods.push({
+          year,
+          month: month + 1, // 1-12 para buscar presupuesto
+          label: monthName,
+          startDate,
+          endDate,
+          dateRange
+        });
         
         // Avanzar al siguiente mes
         currentDate.setMonth(currentDate.getMonth() + 1);
         currentDate.setDate(1);
       }
       
-      return totalEstimated;
+      return periods;
+    };
+    
+    const monthlyPeriods = generateMonthlyPeriods();
+    
+    /**
+     * Obtiene el presupuesto mensual completo para un mes específico
+     * NO prorratea - siempre devuelve el objetivo mensual íntegro
+     */
+    const getMonthlyBudget = (year: number, month: number): number => {
+      const budget = allBudgets.find(b => b.year === year && b.month === month);
+      return budget?.incomeGoal || 0;
     };
     
     let runningBalance = totalBankBalance; // Empezamos con el saldo actual en bancos
     
-    return periodDefinitions.map(period => {
-      // Calcular fechas del período
-      const startDate = new Date(today);
-      startDate.setDate(startDate.getDate() + period.startDay);
-      
-      const endDate = new Date(today);
-      endDate.setDate(endDate.getDate() + period.endDay);
-      endDate.setHours(23, 59, 59, 999); // Fin del día
-      
-      // Generar rango de fechas legible (ej: "1 Dic - 31 Dic 2025")
-      const dateRange = `${formatShortDate(startDate)} - ${formatShortDate(endDate)} ${endDate.getFullYear()}`;
-      
-      // Generar nombres de meses (ej: "Diciembre" o "Diciembre-Enero")
-      const startMonth = getMonthName(startDate);
-      const endMonth = getMonthName(endDate);
-      const monthNames = startMonth === endMonth 
-        ? startMonth 
-        : `${startMonth}-${endMonth}`;
-      
-      // Filtrar transacciones SOLO de este período específico
+    return monthlyPeriods.map((period, index) => {
+      // Filtrar transacciones SOLO de este mes específico
       const txsInPeriod = filteredTxs.filter(tx => {
         const dueDate = new Date(tx.dueDate);
-        return dueDate >= startDate && dueDate <= endDate;
+        return dueDate >= period.startDate && dueDate <= period.endDate;
       });
       
-      // Calcular cobros REALES (transacciones) del período
-      const incomes = txsInPeriod
-        .filter(tx => tx.type === 'INCOME')
-        .reduce((sum, tx) => sum + tx.amount, 0);
+      // Separar transacciones por tipo
+      const incomeTransactions = txsInPeriod.filter(tx => tx.type === 'INCOME');
+      const expenseTransactions = txsInPeriod.filter(tx => tx.type === 'EXPENSE');
       
-      // Calcular cobros ESTIMADOS (del presupuesto) del período
-      const estimatedIncomes = getEstimatedIncomeForPeriod(startDate, endDate);
+      // Calcular cobros REALES (transacciones INCOME del período)
+      const incomes = incomeTransactions.reduce((sum, tx) => sum + tx.amount, 0);
       
-      // Cobros efectivos: usar reales si hay, si no usar estimados
-      const effectiveIncomes = incomes > 0 ? incomes : estimatedIncomes;
+      // Obtener el presupuesto mensual COMPLETO (objetivo del mes)
+      const monthlyBudget = getMonthlyBudget(period.year, period.month);
       
-      const expenses = txsInPeriod
-        .filter(tx => tx.type === 'EXPENSE')
-        .reduce((sum, tx) => sum + tx.amount, 0);
+      // Cobros ESTIMADOS = Presupuesto - Reales (mínimo 0, nunca negativo)
+      // A medida que se añaden transacciones reales, el estimado va bajando
+      const estimatedIncomes = Math.max(0, monthlyBudget - incomes);
+      
+      // Cobros efectivos para el cálculo del flujo = Reales + Estimados pendientes
+      // Esto equivale al presupuesto si no hay reales, o a los reales si superan el presupuesto
+      const effectiveIncomes = incomes + estimatedIncomes;
+      
+      // Calcular gastos
+      const expenses = expenseTransactions.reduce((sum, tx) => sum + tx.amount, 0);
       
       // Flujo neto usa los ingresos efectivos
       const netFlow = effectiveIncomes - expenses;
@@ -366,23 +379,24 @@ export default function DashboardPage() {
       
       return {
         label: period.label,
-        dateRange,
-        monthNames,
-        startDay: period.startDay,
-        endDay: period.endDay,
+        dateRange: period.dateRange,
+        monthNames: period.label,
+        startDay: index * 30, // Aproximación para compatibilidad
+        endDay: (index + 1) * 30,
         incomes,
         estimatedIncomes,
         effectiveIncomes,
         expenses,
         netFlow,
         cumulativeBalance: runningBalance,
+        incomeTransactions,
+        expenseTransactions,
       };
     });
   };
 
-  // Calcular los 3 buckets de previsión
+  // Calcular los buckets de previsión mensuales (4 meses)
   const forecastBuckets = calculateForecastBuckets();
-  const [bucket30d, bucket60d, bucket90d] = forecastBuckets;
 
   // Calcular runway (días que puedo sobrevivir con el saldo actual)
   const monthlyExpenses = pendingTransactions
@@ -404,8 +418,9 @@ export default function DashboardPage() {
   // Alertas
   const alerts: { id: string; type: string; message: string; severity: string }[] = [];
   
-  if (bucket30d && bucket30d.cumulativeBalance < 0) {
-    alerts.push({ id: '1', type: 'CRITICAL', message: 'Saldo proyectado negativo en 30 días', severity: 'HIGH' });
+  const firstBucket = forecastBuckets[0];
+  if (firstBucket && firstBucket.cumulativeBalance < 0) {
+    alerts.push({ id: '1', type: 'CRITICAL', message: `Saldo proyectado negativo en ${firstBucket.label}`, severity: 'HIGH' });
   }
   if (runway < 30) {
     alerts.push({ id: '2', type: 'RUNWAY', message: `Runway crítico: ${runway} días`, severity: 'HIGH' });
@@ -422,6 +437,14 @@ export default function DashboardPage() {
     if (bucket.cumulativeBalance < totalBankBalance * 0.3) return 'MEDIUM';
     return 'LOW';
   };
+
+  // Colores para las tarjetas de cada mes
+  const cardColors = [
+    'border-l-blue-500',
+    'border-l-purple-500',
+    'border-l-orange-500',
+    'border-l-teal-500',
+  ];
 
   if (loading) {
     return (
@@ -563,173 +586,100 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Proyección 30 días */}
-          <Card className="border-l-4 border-l-blue-500">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-gray-900">{bucket30d?.monthNames || 'Próximos 30 días'}</h3>
-                  <p className="text-xs text-gray-500">{bucket30d?.dateRange}</p>
-                </div>
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  bucket30d && getRiskLevel(bucket30d) === 'LOW' ? 'bg-green-100 text-green-800' :
-                  bucket30d && getRiskLevel(bucket30d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  Riesgo {bucket30d && getRiskLevel(bucket30d) === 'LOW' ? 'Bajo' : 
-                          bucket30d && getRiskLevel(bucket30d) === 'MEDIUM' ? 'Medio' : 'Alto'}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {/* Cobros Estimados (del presupuesto) */}
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros estimados</span>
-                  <span className={`font-medium ${(bucket30d?.estimatedIncomes || 0) > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                    +{formatCurrency(bucket30d?.estimatedIncomes || 0)}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {forecastBuckets.map((bucket, index) => (
+            <Card key={index} className={`border-l-4 ${cardColors[index] || 'border-l-gray-500'}`}>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{bucket.monthNames}</h3>
+                    <p className="text-xs text-gray-500">{bucket.dateRange}</p>
+                  </div>
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                    getRiskLevel(bucket) === 'LOW' ? 'bg-green-100 text-green-800' :
+                    getRiskLevel(bucket) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    Riesgo {getRiskLevel(bucket) === 'LOW' ? 'Bajo' : 
+                            getRiskLevel(bucket) === 'MEDIUM' ? 'Medio' : 'Alto'}
                   </span>
                 </div>
-                {/* Cobros Reales (transacciones) */}
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros reales</span>
-                  <span className={`font-semibold ${(bucket30d?.incomes || 0) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                    {(bucket30d?.incomes || 0) > 0 ? `+${formatCurrency(bucket30d?.incomes || 0)}` : '—'}
-                  </span>
+                <div className="space-y-2">
+                  {/* Cobros Estimados (del presupuesto) */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-sm">Cobros estimados</span>
+                    <span className={`font-medium ${bucket.estimatedIncomes > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                      +{formatCurrency(bucket.estimatedIncomes)}
+                    </span>
+                  </div>
+                  {/* Cobros Reales (transacciones) - Clicable */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-sm">Cobros reales</span>
+                    {bucket.incomes > 0 ? (
+                      <button
+                        onClick={() => setDetailModal({
+                          isOpen: true,
+                          title: 'Cobros Reales',
+                          type: 'INCOME',
+                          transactions: bucket.incomeTransactions,
+                          total: bucket.incomes,
+                          monthLabel: bucket.monthNames
+                        })}
+                        className="font-semibold text-green-600 hover:text-green-700 hover:underline flex items-center gap-1 transition-colors"
+                      >
+                        +{formatCurrency(bucket.incomes)}
+                        <ExternalLink size={12} />
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </div>
+                  {/* Pagos Previstos - Clicable */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 text-sm">Pagos previstos</span>
+                    {bucket.expenses > 0 ? (
+                      <button
+                        onClick={() => setDetailModal({
+                          isOpen: true,
+                          title: 'Pagos Previstos',
+                          type: 'EXPENSE',
+                          transactions: bucket.expenseTransactions,
+                          total: bucket.expenses,
+                          monthLabel: bucket.monthNames
+                        })}
+                        className="font-semibold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1 transition-colors"
+                      >
+                        -{formatCurrency(bucket.expenses)}
+                        <ExternalLink size={12} />
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between items-center text-sm border-t pt-2">
+                    <span className="text-gray-600 font-medium">Flujo neto período</span>
+                    <span className={`font-bold ${bucket.netFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {bucket.netFlow >= 0 ? '+' : ''}{formatCurrency(bucket.netFlow)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Pagos previstos</span>
-                  <span className="font-semibold text-red-600">-{formatCurrency(bucket30d?.expenses || 0)}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm border-t pt-2">
-                  <span className="text-gray-600 font-medium">Flujo neto período</span>
-                  <span className={`font-bold ${(bucket30d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {(bucket30d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket30d?.netFlow || 0)}
-                  </span>
-                </div>
-              </div>
-              <div className="border-t pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Saldo acumulado</span>
-                  <span className={`text-xl font-bold ${(bucket30d?.cumulativeBalance || 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                    {formatCurrency(bucket30d?.cumulativeBalance || 0)}
-                  </span>
-                </div>
-                {(bucket30d?.incomes || 0) === 0 && (bucket30d?.estimatedIncomes || 0) > 0 && (
-                  <p className="text-xs text-amber-600 mt-1">Usando estimado (sin transacciones reales)</p>
-                )}
-              </div>
-            </div>
-          </Card>
-
-          {/* Proyección 60 días (días 31-60) */}
-          <Card className="border-l-4 border-l-purple-500">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-gray-900">{bucket60d?.monthNames || 'Días 31-60'}</h3>
-                  <p className="text-xs text-gray-500">{bucket60d?.dateRange}</p>
-                </div>
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  bucket60d && getRiskLevel(bucket60d) === 'LOW' ? 'bg-green-100 text-green-800' :
-                  bucket60d && getRiskLevel(bucket60d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  Riesgo {bucket60d && getRiskLevel(bucket60d) === 'LOW' ? 'Bajo' : 
-                          bucket60d && getRiskLevel(bucket60d) === 'MEDIUM' ? 'Medio' : 'Alto'}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {/* Cobros Estimados (del presupuesto) */}
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros estimados</span>
-                  <span className={`font-medium ${(bucket60d?.estimatedIncomes || 0) > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                    +{formatCurrency(bucket60d?.estimatedIncomes || 0)}
-                  </span>
-                </div>
-                {/* Cobros Reales (transacciones) */}
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros reales</span>
-                  <span className={`font-semibold ${(bucket60d?.incomes || 0) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                    {(bucket60d?.incomes || 0) > 0 ? `+${formatCurrency(bucket60d?.incomes || 0)}` : '—'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Pagos previstos</span>
-                  <span className="font-semibold text-red-600">-{formatCurrency(bucket60d?.expenses || 0)}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm border-t pt-2">
-                  <span className="text-gray-600 font-medium">Flujo neto período</span>
-                  <span className={`font-bold ${(bucket60d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {(bucket60d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket60d?.netFlow || 0)}
-                  </span>
+                <div className="border-t pt-4">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-gray-700">Saldo acumulado</span>
+                    <span className={`text-xl font-bold ${bucket.cumulativeBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(bucket.cumulativeBalance)}
+                    </span>
+                  </div>
+                  {index === 0 && bucket.incomes === 0 && bucket.estimatedIncomes > 0 && (
+                    <p className="text-xs text-amber-600 mt-1">Usando estimado (sin transacciones reales)</p>
+                  )}
+                  {index > 0 && (
+                    <p className="text-xs text-gray-400 mt-1">Arrastra saldo de período anterior</p>
+                  )}
                 </div>
               </div>
-              <div className="border-t pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Saldo acumulado</span>
-                  <span className={`text-xl font-bold ${(bucket60d?.cumulativeBalance || 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                    {formatCurrency(bucket60d?.cumulativeBalance || 0)}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Arrastra saldo de período anterior</p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Proyección 90 días (días 61-90) */}
-          <Card className="border-l-4 border-l-orange-500">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-gray-900">{bucket90d?.monthNames || 'Días 61-90'}</h3>
-                  <p className="text-xs text-gray-500">{bucket90d?.dateRange}</p>
-                </div>
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  bucket90d && getRiskLevel(bucket90d) === 'LOW' ? 'bg-green-100 text-green-800' :
-                  bucket90d && getRiskLevel(bucket90d) === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  Riesgo {bucket90d && getRiskLevel(bucket90d) === 'LOW' ? 'Bajo' : 
-                          bucket90d && getRiskLevel(bucket90d) === 'MEDIUM' ? 'Medio' : 'Alto'}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {/* Cobros Estimados (del presupuesto) */}
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros estimados</span>
-                  <span className={`font-medium ${(bucket90d?.estimatedIncomes || 0) > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                    +{formatCurrency(bucket90d?.estimatedIncomes || 0)}
-                  </span>
-                </div>
-                {/* Cobros Reales (transacciones) */}
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Cobros reales</span>
-                  <span className={`font-semibold ${(bucket90d?.incomes || 0) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                    {(bucket90d?.incomes || 0) > 0 ? `+${formatCurrency(bucket90d?.incomes || 0)}` : '—'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-500 text-sm">Pagos previstos</span>
-                  <span className="font-semibold text-red-600">-{formatCurrency(bucket90d?.expenses || 0)}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm border-t pt-2">
-                  <span className="text-gray-600 font-medium">Flujo neto período</span>
-                  <span className={`font-bold ${(bucket90d?.netFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {(bucket90d?.netFlow || 0) >= 0 ? '+' : ''}{formatCurrency(bucket90d?.netFlow || 0)}
-                  </span>
-                </div>
-              </div>
-              <div className="border-t pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Saldo acumulado</span>
-                  <span className={`text-xl font-bold ${(bucket90d?.cumulativeBalance || 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                    {formatCurrency(bucket90d?.cumulativeBalance || 0)}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Arrastra saldo de período anterior</p>
-              </div>
-            </div>
-          </Card>
+            </Card>
+          ))}
         </div>
       </div>
 
@@ -1106,6 +1056,112 @@ export default function DashboardPage() {
           })()}
         </Card>
       </div>
+
+      {/* Modal de detalle de transacciones */}
+      {detailModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 py-8">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
+              {/* Header del modal */}
+              <div className="flex items-center justify-between p-6 border-b">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    {detailModal.type === 'INCOME' ? (
+                      <TrendingUp className="text-green-600" size={24} />
+                    ) : (
+                      <TrendingDown className="text-red-600" size={24} />
+                    )}
+                    {detailModal.title}
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {detailModal.monthLabel} • {detailModal.transactions.length} movimiento{detailModal.transactions.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDetailModal({ ...detailModal, isOpen: false })}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* Contenido del modal */}
+              <div className="p-6 max-h-[60vh] overflow-y-auto">
+                {detailModal.transactions.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No hay transacciones</p>
+                ) : (
+                  <div className="space-y-3">
+                    {detailModal.transactions
+                      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                      .map((tx) => (
+                        <div 
+                          key={tx.id} 
+                          className={`flex items-center justify-between p-4 rounded-lg border ${
+                            detailModal.type === 'INCOME' 
+                              ? 'bg-green-50 border-green-200' 
+                              : 'bg-red-50 border-red-200'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-gray-900 truncate">{tx.description}</p>
+                              {tx.invoiceNumber && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                  <FileText size={10} className="mr-1" />
+                                  {tx.invoiceNumber}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <Clock size={12} />
+                                {formatDate(tx.dueDate)}
+                              </span>
+                              {tx.thirdPartyName && (
+                                <span className="truncate">• {tx.thirdPartyName}</span>
+                              )}
+                              <span className="text-xs px-2 py-0.5 bg-gray-100 rounded">
+                                {tx.category}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="ml-4 flex-shrink-0">
+                            <span className={`text-lg font-bold ${
+                              detailModal.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {detailModal.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer del modal con total */}
+              <div className="border-t p-6 bg-gray-50 rounded-b-xl">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-gray-700">Total</span>
+                  <span className={`text-2xl font-bold ${
+                    detailModal.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {detailModal.type === 'INCOME' ? '+' : '-'}{formatCurrency(detailModal.total)}
+                  </span>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <Link
+                    href={`/transactions?type=${detailModal.type}`}
+                    className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                  >
+                    Ver todas las transacciones
+                    <ArrowRight size={14} />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

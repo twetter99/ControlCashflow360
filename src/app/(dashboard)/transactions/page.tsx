@@ -499,9 +499,10 @@ export default function TransactionsPage() {
 
       {/* Modal de formulario */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-8">
-            <div className="flex items-center justify-between p-6 border-b">
+        <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 py-8">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+              <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-xl font-bold text-gray-900">
                 {editingTransaction ? 'Editar Movimiento' : 'Nuevo Movimiento'}
               </h2>
@@ -721,6 +722,7 @@ export default function TransactionsPage() {
                 </Button>
               </div>
             </form>
+          </div>
           </div>
         </div>
       )}
