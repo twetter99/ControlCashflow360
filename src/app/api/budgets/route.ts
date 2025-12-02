@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase/admin';
-import { verifyAuth, handleApiError, successResponse } from '@/lib/api-utils';
+import { getAdminDb } from '@/lib/firebase/admin';
+import { authenticateRequest, successResponse, errorResponse } from '@/lib/api-utils';
 import { MonthlyBudget } from '@/types';
 
 // Colección de presupuestos mensuales
@@ -13,12 +13,17 @@ const COLLECTION = 'monthly_budgets';
  */
 export async function GET(request: NextRequest) {
   try {
-    const userId = await verifyAuth(request);
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
+    
     const { searchParams } = new URL(request.url);
     const yearFilter = searchParams.get('year');
+    
+    const db = getAdminDb();
 
     // Query simple sin orderBy compuesto (evita necesitar índice)
-    const snapshot = await adminDb
+    const snapshot = await db
       .collection(COLLECTION)
       .where('userId', '==', userId)
       .get();
@@ -44,7 +49,8 @@ export async function GET(request: NextRequest) {
 
     return successResponse(budgets);
   } catch (error) {
-    return handleApiError(error);
+    console.error('Error fetching budgets:', error);
+    return errorResponse('Error al obtener presupuestos', 500);
   }
 }
 
@@ -54,10 +60,14 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const userId = await verifyAuth(request);
-    const body = await request.json();
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
     
+    const body = await request.json();
     const { year, month, incomeGoal, notes } = body;
+    
+    const db = getAdminDb();
 
     // Validaciones
     if (!year || !month || incomeGoal === undefined) {
@@ -82,7 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Buscar si ya existe un presupuesto para ese año/mes
-    const existing = await adminDb
+    const existing = await db
       .collection(COLLECTION)
       .where('userId', '==', userId)
       .where('year', '==', year)
@@ -122,7 +132,7 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
       };
 
-      const docRef = await adminDb.collection(COLLECTION).add(budgetData);
+      const docRef = await db.collection(COLLECTION).add(budgetData);
       
       return successResponse({
         id: docRef.id,
@@ -130,7 +140,8 @@ export async function POST(request: NextRequest) {
       });
     }
   } catch (error) {
-    return handleApiError(error);
+    console.error('Error creating/updating budget:', error);
+    return errorResponse('Error al guardar presupuesto', 500);
   }
 }
 
@@ -140,10 +151,14 @@ export async function POST(request: NextRequest) {
  */
 export async function PUT(request: NextRequest) {
   try {
-    const userId = await verifyAuth(request);
-    const body = await request.json();
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
     
+    const body = await request.json();
     const { budgets } = body as { budgets: Array<{ year: number; month: number; incomeGoal: number; notes?: string }> };
+    
+    const db = getAdminDb();
 
     if (!Array.isArray(budgets) || budgets.length === 0) {
       return NextResponse.json(
@@ -159,7 +174,7 @@ export async function PUT(request: NextRequest) {
       const { year, month, incomeGoal, notes } = budget;
 
       // Buscar existente
-      const existing = await adminDb
+      const existing = await db
         .collection(COLLECTION)
         .where('userId', '==', userId)
         .where('year', '==', year)
@@ -195,7 +210,7 @@ export async function PUT(request: NextRequest) {
           createdAt: now,
           updatedAt: now,
         };
-        const docRef = await adminDb.collection(COLLECTION).add(budgetData);
+        const docRef = await db.collection(COLLECTION).add(budgetData);
         results.push({
           id: docRef.id,
           ...budgetData,
@@ -205,6 +220,7 @@ export async function PUT(request: NextRequest) {
 
     return successResponse({ updated: results.length, budgets: results });
   } catch (error) {
-    return handleApiError(error);
+    console.error('Error bulk updating budgets:', error);
+    return errorResponse('Error al actualizar presupuestos', 500);
   }
 }
