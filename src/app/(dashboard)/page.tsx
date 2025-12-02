@@ -647,6 +647,11 @@ export default function DashboardPage() {
         const layer2Progress = monthlyIncomeGoal > 0 ? (layer2Total / monthlyIncomeGoal) * 100 : 0;
         const layer3Progress = monthlyIncomeGoal > 0 ? (layer3Total / monthlyIncomeGoal) * 100 : 0;
         
+        // Diferencia entre estimado y real
+        const difference = totalIncomes - monthlyIncomeGoal;
+        const hasBudget = monthlyIncomeGoal > 0;
+        const hasRealIncomes = totalIncomes > 0;
+        
         // Nombres de meses
         const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -661,23 +666,46 @@ export default function DashboardPage() {
                   <p className="text-sm text-gray-500">{monthNames[currentMonth]} {currentYear}</p>
                 </div>
               </div>
-              {monthlyIncomeGoal > 0 && (
-                <div className="text-right">
-                  <p className="text-sm text-gray-500">Objetivo mensual</p>
-                  <p className="text-xl font-bold text-emerald-700">{formatCurrency(monthlyIncomeGoal)}</p>
+              
+              {/* Vista híbrida: Estimado | Real | Diferencia */}
+              <div className="flex items-center gap-4 flex-wrap">
+                {hasBudget && (
+                  <div className="text-center px-4 py-2 bg-white/60 rounded-lg border border-emerald-200">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Estimado</p>
+                    <p className="text-lg font-bold text-emerald-700">{formatCurrency(monthlyIncomeGoal)}</p>
+                  </div>
+                )}
+                <div className="text-center px-4 py-2 bg-white/60 rounded-lg border border-blue-200">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">Real</p>
+                  <p className={`text-lg font-bold ${hasRealIncomes ? 'text-blue-700' : 'text-gray-400'}`}>
+                    {hasRealIncomes ? formatCurrency(totalIncomes) : '—'}
+                  </p>
                 </div>
-              )}
+                {hasBudget && (
+                  <div className="text-center px-4 py-2 bg-white/60 rounded-lg border border-gray-200">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Diferencia</p>
+                    <p className={`text-lg font-bold ${
+                      difference >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {difference >= 0 ? '+' : ''}{formatCurrency(difference)}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Barra de progreso por capas */}
-            {monthlyIncomeGoal > 0 && (
+            {hasBudget && (
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium text-gray-700">
-                    Progreso: {formatCurrency(totalIncomes)} / {formatCurrency(monthlyIncomeGoal)}
+                    {hasRealIncomes 
+                      ? `Conseguido: ${formatCurrency(totalIncomes)} de ${formatCurrency(monthlyIncomeGoal)} estimado`
+                      : `Sin ingresos reales registrados aún`
+                    }
                   </span>
                   <span className={`text-sm font-bold ${goalProgress >= 100 ? 'text-emerald-600' : goalProgress >= 75 ? 'text-green-600' : 'text-gray-600'}`}>
-                    {Math.min(goalProgress, 100).toFixed(0)}%
+                    {hasRealIncomes ? `${Math.min(goalProgress, 100).toFixed(0)}%` : '0%'}
                   </span>
                 </div>
                 <div className="h-4 bg-gray-200 rounded-full overflow-hidden flex">
@@ -700,15 +728,21 @@ export default function DashboardPage() {
                     title={`Capa 3 (Por cerrar): ${formatCurrency(layer3Total)}`}
                   />
                 </div>
-                {goalProgress < 100 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Faltan {formatCurrency(monthlyIncomeGoal - totalIncomes)} para alcanzar el objetivo
+                {!hasRealIncomes && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center">
+                    <AlertTriangle size={12} className="mr-1" />
+                    Añade transacciones de ingreso para ver el progreso real
                   </p>
                 )}
-                {goalProgress >= 100 && (
+                {hasRealIncomes && goalProgress < 100 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Faltan {formatCurrency(monthlyIncomeGoal - totalIncomes)} para alcanzar el estimado
+                  </p>
+                )}
+                {hasRealIncomes && goalProgress >= 100 && (
                   <p className="text-xs text-emerald-600 mt-1 flex items-center">
                     <Check size={14} className="mr-1" />
-                    ¡Objetivo alcanzado! Superado en {formatCurrency(totalIncomes - monthlyIncomeGoal)}
+                    ¡Estimado superado en {formatCurrency(totalIncomes - monthlyIncomeGoal)}!
                   </p>
                 )}
               </div>
