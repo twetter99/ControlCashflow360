@@ -21,7 +21,8 @@ import {
   Repeat,
   Target,
   FileText,
-  FileCheck
+  FileCheck,
+  RotateCcw
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -149,6 +150,21 @@ export default function TransactionsPage() {
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al cancelar el movimiento');
+    }
+  };
+
+  const handleReactivate = async (transactionId: string) => {
+    if (!user) return;
+    if (!confirm('¿Reactivar este movimiento como pendiente?')) return;
+    try {
+      const updated = await transactionsApi.reactivate(transactionId);
+      setTransactions(prev => prev.map(tx => 
+        tx.id === transactionId ? updated : tx
+      ));
+      toast.success('Movimiento reactivado como pendiente');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al reactivar el movimiento');
     }
   };
 
@@ -486,6 +502,15 @@ export default function TransactionsPage() {
                           title="Cancelar"
                         >
                           <X size={16} />
+                        </button>
+                      )}
+                      {(tx.status === 'PAID' || tx.status === 'CANCELLED') && (
+                        <button
+                          onClick={() => handleReactivate(tx.id)}
+                          className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          title="Reactivar como pendiente"
+                        >
+                          <RotateCcw size={16} />
                         </button>
                       )}
                     </div>

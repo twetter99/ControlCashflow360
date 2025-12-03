@@ -365,6 +365,40 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         amount: existingData.amount,
         previousStatus: existingData.status,
       }, { entityName: existingData.description || `Cancelación - ${existingData.amount}` });
+    } else if (body.action === 'reactivate') {
+      // Reactivar transacción (volver a PENDING)
+      if (existingData.status === 'PENDING') {
+        return errorResponse('La transacción ya está pendiente', 400, 'ALREADY_PENDING');
+      }
+
+      // Si estaba PAID, revertir balance primero
+      if (existingData.status === 'PAID' && existingData.accountId) {
+        const accountDoc = await db.collection('accounts').doc(existingData.accountId).get();
+        if (accountDoc.exists) {
+          const accountData = accountDoc.data()!;
+          const balanceRevert = existingData.type === 'INCOME' 
+            ? -existingData.amount 
+            : existingData.amount;
+          
+          await db.collection('accounts').doc(existingData.accountId).update({
+            currentBalance: (accountData.currentBalance || 0) + balanceRevert,
+            lastUpdateAmount: balanceRevert,
+            lastUpdateDate: now,
+            lastUpdatedBy: userId,
+            updatedAt: now,
+          });
+        }
+      }
+
+      updateData.status = 'PENDING';
+      updateData.paidDate = null; // Limpiar fecha de pago
+
+      // Registrar acción en auditoría
+      await logTransactionAction(userId, 'REACTIVATE', id, {
+        action: 'reactivate',
+        amount: existingData.amount,
+        previousStatus: existingData.status,
+      }, { entityName: existingData.description || `Reactivación - ${existingData.amount}` });
     } else {
       return errorResponse('Acción no válida', 400, 'INVALID_ACTION');
     }

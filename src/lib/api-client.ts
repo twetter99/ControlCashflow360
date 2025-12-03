@@ -271,6 +271,16 @@ export const transactionsApi = {
       body: JSON.stringify({ action: 'cancel' }),
     });
   },
+
+  /**
+   * Reactivar transacción (volver a PENDING)
+   */
+  async reactivate(id: string): Promise<Transaction> {
+    return apiRequest<Transaction>(`/api/transactions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'reactivate' }),
+    });
+  },
 };
 
 // ============================================

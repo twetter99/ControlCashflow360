@@ -193,7 +193,7 @@ export const UpdateTransactionSchema = z.object({
 
 // Schema para acciones especiales de transacción
 export const TransactionActionSchema = z.object({
-  action: z.enum(['markAsPaid', 'cancel']),
+  action: z.enum(['markAsPaid', 'cancel', 'reactivate']),
   paidDate: z.string()
     .transform(val => new Date(val))
     .optional(),
