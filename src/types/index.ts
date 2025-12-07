@@ -32,6 +32,9 @@ export type AlertType =
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
+// Método de pago para gastos
+export type PaymentMethod = 'TRANSFER' | 'DIRECT_DEBIT';
+
 // ============================================
 // Colección: companies
 // ============================================
@@ -150,6 +153,36 @@ export interface MonthlyBudget {
 }
 
 // ============================================
+// Colección: loans (Préstamos)
+// ============================================
+
+export type LoanStatus = 'ACTIVE' | 'PAID_OFF' | 'DEFAULTED';
+
+export interface Loan {
+  id: string;
+  userId: string;
+  companyId: string;              // Empresa
+  bankName: string;               // Banco/Entidad financiera
+  alias?: string;                 // Nombre descriptivo del préstamo
+  originalPrincipal: number;      // Capital original (informativo)
+  interestRate: number;           // Tipo de interés anual (%)
+  monthlyPayment: number;         // Cuota mensual
+  paymentDay: number;             // Día de pago (1-31)
+  chargeAccountId?: string;       // Cuenta bancaria de cargo
+  remainingBalance: number;       // Saldo pendiente actual a fecha de alta
+  remainingInstallments: number;  // Cuotas restantes a fecha de alta
+  firstPendingDate: Date;         // Fecha de la primera cuota pendiente
+  endDate: Date;                  // Fecha vencimiento final (calculada)
+  paidInstallments: number;       // Cuotas pagadas (desde el alta en la app)
+  status: LoanStatus;
+  notes?: string;
+  createdBy?: string;
+  lastUpdatedBy?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// ============================================
 // Colección: transactions (Movimientos)
 // ============================================
 
@@ -176,6 +209,14 @@ export interface Transaction {
   notes?: string;
   // Campo para ingresos facturados (Capa 1)
   invoiceNumber?: string;
+  // Campos para gastos de proveedores (opcionales)
+  supplierInvoiceNumber?: string;  // Nº factura del proveedor
+  supplierBankAccount?: string;    // IBAN/cuenta del proveedor para transferencia
+  paymentMethod?: PaymentMethod;   // Método de pago: transferencia o recibo domiciliado
+  chargeAccountId?: string;        // Cuenta bancaria nuestra donde se carga el pago
+  // Campos para préstamos
+  loanId?: string;                 // ID del préstamo asociado (si es cuota de préstamo)
+  loanInstallmentNumber?: number;  // Número de cuota del préstamo
   // Campos para recurrencias
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;
@@ -471,6 +512,11 @@ export type UpdateCompanyInput = Partial<Omit<Company, 'id' | 'userId' | 'code' 
 
 export type CreateCreditLineInput = Omit<CreditLine, 'id' | 'userId' | 'createdAt' | 'updatedAt'>;
 export type UpdateCreditLineInput = Partial<Omit<CreditLine, 'id' | 'userId' | 'createdAt'>>;
+
+export type CreateLoanInput = Omit<Loan, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'paidInstallments' | 'endDate' | 'status'> & {
+  status?: LoanStatus;  // Opcional, por defecto ACTIVE
+};
+export type UpdateLoanInput = Partial<Omit<Loan, 'id' | 'userId' | 'createdAt'>>;
 
 // ============================================
 // Tipos para balance update (Morning Check)

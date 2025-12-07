@@ -432,6 +432,86 @@ export const creditCardsApi = {
 };
 
 // ============================================
+// LOANS API (Préstamos)
+// ============================================
+
+import { Loan, CreateLoanInput, UpdateLoanInput } from '@/types';
+
+interface LoanFilters {
+  companyId?: string;
+  status?: 'ACTIVE' | 'PAID_OFF' | 'DEFAULTED';
+}
+
+interface CreateLoanResponse {
+  loan: Loan;
+  transactionsCreated: number;
+}
+
+export const loansApi = {
+  /**
+   * Obtener todos los préstamos del usuario
+   */
+  async getAll(filters?: LoanFilters): Promise<Loan[]> {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, value);
+      });
+    }
+    const queryString = params.toString();
+    const url = queryString 
+      ? `/api/loans?${queryString}`
+      : '/api/loans';
+    return apiRequest<Loan[]>(url);
+  },
+
+  /**
+   * Obtener préstamo por ID
+   */
+  async getById(id: string): Promise<Loan & { installmentsCount?: number }> {
+    return apiRequest<Loan & { installmentsCount?: number }>(`/api/loans/${id}`);
+  },
+
+  /**
+   * Crear nuevo préstamo (genera automáticamente las cuotas)
+   */
+  async create(data: CreateLoanInput): Promise<CreateLoanResponse> {
+    return apiRequest<CreateLoanResponse>('/api/loans', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar préstamo
+   */
+  async update(id: string, data: UpdateLoanInput): Promise<Loan> {
+    return apiRequest<Loan>(`/api/loans/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Eliminar préstamo y sus cuotas pendientes
+   */
+  async delete(id: string): Promise<{ success: boolean; message: string; transactionsDeleted: number }> {
+    return apiRequest<{ success: boolean; message: string; transactionsDeleted: number }>(`/api/loans/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Regenerar las cuotas pendientes de un préstamo
+   */
+  async regenerateInstallments(id: string): Promise<Loan> {
+    return apiRequest<Loan>(`/api/loans/${id}`, {
+      method: 'PATCH',
+    });
+  },
+};
+
+// ============================================
 // RECURRENCES API (Transacciones Recurrentes)
 // ============================================
 

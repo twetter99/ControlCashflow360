@@ -337,6 +337,82 @@ export const CreditCardBalanceUpdateSchema = z.object({
 });
 
 // ============================================
+// LOAN SCHEMAS (Préstamos)
+// ============================================
+
+export const LoanStatusSchema = z.enum(['ACTIVE', 'PAID_OFF', 'DEFAULTED']);
+
+export const CreateLoanSchema = z.object({
+  companyId: z.string()
+    .min(1, 'El ID de empresa es requerido'),
+  bankName: sanitizedString(100)
+    .pipe(z.string().min(1, 'El nombre del banco es requerido').max(100, 'El nombre del banco no puede exceder 100 caracteres')),
+  alias: sanitizedString(100)
+    .pipe(z.string().max(100, 'El alias no puede exceder 100 caracteres'))
+    .optional()
+    .default(''),
+  originalPrincipal: z.number()
+    .min(0, 'El capital original no puede ser negativo')
+    .finite('El capital debe ser un número válido'),
+  interestRate: z.number()
+    .min(0, 'El tipo de interés no puede ser negativo')
+    .max(100, 'El tipo de interés no puede exceder 100%')
+    .finite('El tipo de interés debe ser un número válido'),
+  monthlyPayment: z.number()
+    .positive('La cuota mensual debe ser mayor a 0')
+    .finite('La cuota debe ser un número válido'),
+  paymentDay: z.number()
+    .int('El día de pago debe ser un número entero')
+    .min(1, 'El día de pago debe ser entre 1 y 31')
+    .max(31, 'El día de pago debe ser entre 1 y 31'),
+  chargeAccountId: z.string().optional(),
+  remainingBalance: z.number()
+    .min(0, 'El saldo pendiente no puede ser negativo')
+    .finite('El saldo debe ser un número válido'),
+  remainingInstallments: z.number()
+    .int('El número de cuotas debe ser un número entero')
+    .positive('El número de cuotas restantes debe ser mayor a 0')
+    .max(600, 'El número de cuotas no puede exceder 600'),
+  firstPendingDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).refine(date => !isNaN(date.getTime()), {
+    message: 'La fecha de primera cuota pendiente no es válida',
+  }),
+  status: LoanStatusSchema.default('ACTIVE'),
+  notes: sanitizedString(1000)
+    .pipe(z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres'))
+    .optional()
+    .default(''),
+});
+
+export const UpdateLoanSchema = z.object({
+  companyId: z.string().min(1).optional(),
+  bankName: sanitizedString(100).pipe(z.string().min(1).max(100)).optional(),
+  alias: sanitizedString(100).pipe(z.string().max(100)).optional(),
+  originalPrincipal: z.number().min(0).finite().optional(),
+  interestRate: z.number().min(0).max(100).finite().optional(),
+  monthlyPayment: z.number().positive().finite().optional(),
+  paymentDay: z.number().int().min(1).max(31).optional(),
+  chargeAccountId: z.string().optional().nullable(),
+  remainingBalance: z.number().min(0).finite().optional(),
+  remainingInstallments: z.number().int().positive().max(600).optional(),
+  firstPendingDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).optional(),
+  endDate: z.union([
+    z.date(),
+    z.string().transform(val => new Date(val)),
+  ]).optional(),
+  paidInstallments: z.number().int().min(0).optional(),
+  status: LoanStatusSchema.optional(),
+  notes: sanitizedString(1000).pipe(z.string().max(1000)).optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+// ============================================
 // RECURRENCE SCHEMAS (Transacciones Recurrentes)
 // ============================================
 

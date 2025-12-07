@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card, Input, ThirdPartyAutocomplete } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { transactionsApi, companiesApi } from '@/lib/api-client';
-import { Transaction, Company, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, getIncomeLayer } from '@/types';
+import { transactionsApi, companiesApi, accountsApi } from '@/lib/api-client';
+import { Transaction, Company, Account, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -44,6 +44,11 @@ interface TransactionFormData {
   invoiceNumber: string;
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;
+  // Campos opcionales para gastos
+  supplierInvoiceNumber: string;
+  supplierBankAccount: string;
+  paymentMethod: PaymentMethod;
+  chargeAccountId: string;
 }
 
 export default function TransactionsPage() {
@@ -53,6 +58,7 @@ export default function TransactionsPage() {
   const [editingTransaction, setEditingTransaction] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<TransactionStatus | 'ALL'>('ALL');
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
@@ -70,6 +76,10 @@ export default function TransactionsPage() {
     invoiceNumber: '',
     recurrence: 'NONE',
     certainty: 'HIGH',
+    supplierInvoiceNumber: '',
+    supplierBankAccount: '',
+    paymentMethod: 'TRANSFER',
+    chargeAccountId: '',
   });
 
   // Cargar datos via API
@@ -79,12 +89,14 @@ export default function TransactionsPage() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [transactionsData, companiesData] = await Promise.all([
+        const [transactionsData, companiesData, accountsData] = await Promise.all([
           transactionsApi.getAll(),
-          companiesApi.getAll()
+          companiesApi.getAll(),
+          accountsApi.getAll()
         ]);
         setTransactions(transactionsData);
         setCompanies(companiesData.map((c: Company) => ({ id: c.id, name: c.name })));
+        setAccounts(accountsData);
       } catch (error: unknown) {
         console.error('Error cargando datos:', error);
         toast.error('Error al cargar los movimientos');
@@ -187,6 +199,10 @@ export default function TransactionsPage() {
       invoiceNumber: tx.invoiceNumber || '',
       recurrence: tx.recurrence || 'NONE',
       certainty: tx.certainty || 'HIGH',
+      supplierInvoiceNumber: tx.supplierInvoiceNumber || '',
+      supplierBankAccount: tx.supplierBankAccount || '',
+      paymentMethod: tx.paymentMethod || 'TRANSFER',
+      chargeAccountId: tx.chargeAccountId || '',
     });
     setEditingTransaction(tx.id);
     setShowForm(true);
@@ -211,6 +227,10 @@ export default function TransactionsPage() {
           invoiceNumber: formData.type === 'INCOME' ? formData.invoiceNumber : '',
           recurrence: formData.recurrence,
           certainty: formData.certainty,
+          supplierInvoiceNumber: formData.type === 'EXPENSE' ? formData.supplierInvoiceNumber : '',
+          supplierBankAccount: formData.type === 'EXPENSE' && formData.paymentMethod === 'TRANSFER' ? formData.supplierBankAccount : '',
+          paymentMethod: formData.type === 'EXPENSE' ? formData.paymentMethod : undefined,
+          chargeAccountId: formData.type === 'EXPENSE' ? formData.chargeAccountId : undefined,
         });
         setTransactions(prev => prev.map(tx => 
           tx.id === editingTransaction ? updated : tx
@@ -231,6 +251,10 @@ export default function TransactionsPage() {
           invoiceNumber: formData.type === 'INCOME' ? formData.invoiceNumber : '',
           recurrence: formData.recurrence,
           certainty: formData.certainty,
+          supplierInvoiceNumber: formData.type === 'EXPENSE' ? formData.supplierInvoiceNumber : '',
+          supplierBankAccount: formData.type === 'EXPENSE' && formData.paymentMethod === 'TRANSFER' ? formData.supplierBankAccount : '',
+          paymentMethod: formData.type === 'EXPENSE' ? formData.paymentMethod : undefined,
+          chargeAccountId: formData.type === 'EXPENSE' ? formData.chargeAccountId : undefined,
           createdBy: user.uid,
         });
         setTransactions(prev => [...prev, newTx]);
@@ -252,6 +276,10 @@ export default function TransactionsPage() {
         invoiceNumber: '',
         recurrence: 'NONE',
         certainty: 'HIGH',
+        supplierInvoiceNumber: '',
+        supplierBankAccount: '',
+        paymentMethod: 'TRANSFER',
+        chargeAccountId: '',
       });
     } catch (error) {
       console.error('Error guardando movimiento:', error);
@@ -440,6 +468,27 @@ export default function TransactionsPage() {
                             {tx.invoiceNumber}
                           </p>
                         )}
+                        {tx.supplierInvoiceNumber && (
+                          <p className="text-xs text-red-600 mt-0.5">
+                            <FileText size={10} className="inline mr-1" />
+                            Fact: {tx.supplierInvoiceNumber}
+                          </p>
+                        )}
+                        {tx.paymentMethod === 'DIRECT_DEBIT' && (
+                          <p className="text-xs text-orange-600 mt-0.5" title="Recibo domiciliado">
+                            🔄 Recibo domiciliado
+                          </p>
+                        )}
+                        {tx.chargeAccountId && (
+                          <p className="text-xs text-blue-600 mt-0.5" title="Cuenta de cargo">
+                            🏦 {accounts.find(a => a.id === tx.chargeAccountId)?.alias || 'Cuenta asignada'}
+                          </p>
+                        )}
+                        {tx.supplierBankAccount && tx.paymentMethod !== 'DIRECT_DEBIT' && (
+                          <p className="text-xs text-gray-500 mt-0.5" title="IBAN del proveedor">
+                            💸 {tx.supplierBankAccount}
+                          </p>
+                        )}
                       </div>
                       {getIncomeLayerBadge(tx)}
                     </div>
@@ -548,6 +597,10 @@ export default function TransactionsPage() {
                     invoiceNumber: '',
                     recurrence: 'NONE',
                     certainty: 'HIGH',
+                    supplierInvoiceNumber: '',
+                    supplierBankAccount: '',
+                    paymentMethod: 'TRANSFER',
+                    chargeAccountId: '',
                   });
                 }}
                 className="text-gray-400 hover:text-gray-600"
@@ -674,6 +727,91 @@ export default function TransactionsPage() {
                 </div>
               )}
               
+              {/* Campos adicionales - Solo para gastos */}
+              {formData.type === 'EXPENSE' && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+                  <p className="text-sm font-medium text-red-800 flex items-center gap-2">
+                    <FileText size={16} />
+                    Datos del pago (opcionales)
+                  </p>
+                  
+                  {/* Método de pago */}
+                  <div>
+                    <label className="block text-sm font-medium text-red-800 mb-2">Método de pago</label>
+                    <div className="flex space-x-4">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value="TRANSFER"
+                          checked={formData.paymentMethod === 'TRANSFER'}
+                          onChange={() => setFormData({ ...formData, paymentMethod: 'TRANSFER' })}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">💸 Transferencia</span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value="DIRECT_DEBIT"
+                          checked={formData.paymentMethod === 'DIRECT_DEBIT'}
+                          onChange={() => setFormData({ ...formData, paymentMethod: 'DIRECT_DEBIT', supplierBankAccount: '' })}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">🔄 Recibo domiciliado</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Cuenta de cargo (nuestra) */}
+                  <div>
+                    <label className="block text-sm font-medium text-red-800 mb-1">
+                      {formData.paymentMethod === 'DIRECT_DEBIT' 
+                        ? 'Cuenta donde nos girarán el recibo' 
+                        : 'Cuenta desde donde pagaremos (opcional)'}
+                    </label>
+                    <select
+                      value={formData.chargeAccountId}
+                      onChange={(e) => setFormData({ ...formData, chargeAccountId: e.target.value })}
+                      className="w-full border rounded-lg px-4 py-3 text-sm"
+                    >
+                      <option value="">Selecciona cuenta</option>
+                      {accounts
+                        .filter(acc => !formData.companyId || acc.companyId === formData.companyId)
+                        .map(acc => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.bankName} - {acc.accountNumber} ({acc.alias})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <Input
+                    label="Nº Factura del proveedor"
+                    value={formData.supplierInvoiceNumber}
+                    onChange={(e) => setFormData({ ...formData, supplierInvoiceNumber: e.target.value })}
+                    placeholder="Ej: FAC-2024-001234"
+                  />
+                  
+                  {/* IBAN solo si es transferencia */}
+                  {formData.paymentMethod === 'TRANSFER' && (
+                    <Input
+                      label="IBAN/Cuenta del proveedor"
+                      value={formData.supplierBankAccount}
+                      onChange={(e) => setFormData({ ...formData, supplierBankAccount: e.target.value })}
+                      placeholder="Ej: ES91 2100 0418 4502 0005 1332"
+                    />
+                  )}
+                  
+                  <p className="text-xs text-red-600">
+                    {formData.paymentMethod === 'DIRECT_DEBIT' 
+                      ? '🔄 El proveedor girará un cargo automático a tu cuenta'
+                      : '💸 Deberás realizar la transferencia manualmente'}
+                  </p>
+                </div>
+              )}
+              
               {/* Nuevos campos: Recurrencia y Certeza */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -737,6 +875,10 @@ export default function TransactionsPage() {
                       invoiceNumber: '',
                       recurrence: 'NONE',
                       certainty: 'HIGH',
+                      supplierInvoiceNumber: '',
+                      supplierBankAccount: '',
+                      paymentMethod: 'TRANSFER',
+                      chargeAccountId: '',
                     });
                   }}
                 >

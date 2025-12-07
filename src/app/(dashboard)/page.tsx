@@ -95,6 +95,9 @@ export default function DashboardPage() {
   // Todos los presupuestos mensuales (para previsiones)
   const [allBudgets, setAllBudgets] = useState<{ year: number; month: number; incomeGoal: number }[]>([]);
   
+  // Período seleccionado para próximos vencimientos
+  const [upcomingDaysFilter, setUpcomingDaysFilter] = useState<7 | 15 | 21 | 30>(7);
+  
   // Modal de detalle de transacciones
   const [detailModal, setDetailModal] = useState<TransactionDetailModal>({
     isOpen: false,
@@ -406,14 +409,57 @@ export default function DashboardPage() {
   const dailyBurn = monthlyExpenses / 30;
   const runway = dailyBurn > 0 ? Math.round(totalBankBalance / dailyBurn) : 999;
 
-  // Próximos vencimientos (7 días)
-  const upcomingTransactions = pendingTransactions
-    .filter(tx => {
+  // Función para filtrar transacciones por días
+  const getTransactionsInDays = (days: number) => {
+    return pendingTransactions.filter(tx => {
       const daysUntil = Math.ceil((new Date(tx.dueDate).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      return daysUntil >= 0 && daysUntil <= 7;
-    })
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-    .slice(0, 5);
+      return daysUntil >= 0 && daysUntil <= days;
+    });
+  };
+
+  // Estadísticas por período para los tabs
+  const upcomingStats = {
+    7: (() => {
+      const txs = getTransactionsInDays(7);
+      return {
+        count: txs.length,
+        total: txs.reduce((sum, tx) => sum + (tx.type === 'EXPENSE' ? -tx.amount : tx.amount), 0),
+        expenses: txs.filter(tx => tx.type === 'EXPENSE').reduce((sum, tx) => sum + tx.amount, 0),
+        incomes: txs.filter(tx => tx.type === 'INCOME').reduce((sum, tx) => sum + tx.amount, 0),
+      };
+    })(),
+    15: (() => {
+      const txs = getTransactionsInDays(15);
+      return {
+        count: txs.length,
+        total: txs.reduce((sum, tx) => sum + (tx.type === 'EXPENSE' ? -tx.amount : tx.amount), 0),
+        expenses: txs.filter(tx => tx.type === 'EXPENSE').reduce((sum, tx) => sum + tx.amount, 0),
+        incomes: txs.filter(tx => tx.type === 'INCOME').reduce((sum, tx) => sum + tx.amount, 0),
+      };
+    })(),
+    21: (() => {
+      const txs = getTransactionsInDays(21);
+      return {
+        count: txs.length,
+        total: txs.reduce((sum, tx) => sum + (tx.type === 'EXPENSE' ? -tx.amount : tx.amount), 0),
+        expenses: txs.filter(tx => tx.type === 'EXPENSE').reduce((sum, tx) => sum + tx.amount, 0),
+        incomes: txs.filter(tx => tx.type === 'INCOME').reduce((sum, tx) => sum + tx.amount, 0),
+      };
+    })(),
+    30: (() => {
+      const txs = getTransactionsInDays(30);
+      return {
+        count: txs.length,
+        total: txs.reduce((sum, tx) => sum + (tx.type === 'EXPENSE' ? -tx.amount : tx.amount), 0),
+        expenses: txs.filter(tx => tx.type === 'EXPENSE').reduce((sum, tx) => sum + tx.amount, 0),
+        incomes: txs.filter(tx => tx.type === 'INCOME').reduce((sum, tx) => sum + tx.amount, 0),
+      };
+    })(),
+  };
+
+  // Próximos vencimientos (filtrado dinámico)
+  const upcomingTransactions = getTransactionsInDays(upcomingDaysFilter)
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
   // Alertas
   const alerts: { id: string; type: string; message: string; severity: string }[] = [];
@@ -919,17 +965,43 @@ export default function DashboardPage() {
       })()}
 
       {/* Próximos vencimientos */}
-      <Card 
-        title="Próximos vencimientos (7 días)" 
-        subtitle="Movimientos pendientes de pago/cobro"
-        action={
-          <Link href="/transactions" className="text-sm text-primary-600 hover:text-primary-700 font-medium">
-            Ver todos →
-          </Link>
-        }
-      >
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              {([7, 15, 21, 30] as const).map((days) => (
+                <button
+                  key={days}
+                  onClick={() => setUpcomingDaysFilter(days)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    upcomingDaysFilter === days
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {days}d ({upcomingStats[days].count})
+                </button>
+              ))}
+            </div>
+            <Link href="/transactions" className="text-sm text-primary-600 hover:text-primary-700 font-medium">
+              Ver todos →
+            </Link>
+          </div>
+          <div className="flex gap-4 text-sm">
+            <span className="text-green-600 font-medium">
+              Cobros: +{upcomingStats[upcomingDaysFilter].incomes.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+            </span>
+            <span className="text-red-600 font-medium">
+              Pagos: -{upcomingStats[upcomingDaysFilter].expenses.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+            </span>
+            <span className={`font-semibold ${upcomingStats[upcomingDaysFilter].total >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+              Neto: {upcomingStats[upcomingDaysFilter].total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+            </span>
+          </div>
+        </div>
+        <div className="p-6">
         {upcomingTransactions.length === 0 ? (
-          <p className="text-gray-500 text-center py-8">No hay vencimientos en los próximos 7 días</p>
+          <p className="text-gray-500 text-center py-8">No hay vencimientos en los próximos {upcomingDaysFilter} días</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -992,7 +1064,8 @@ export default function DashboardPage() {
             </table>
           </div>
         )}
-      </Card>
+        </div>
+      </div>
 
       {/* Resumen por tipo */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

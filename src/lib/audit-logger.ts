@@ -27,6 +27,7 @@ export type AuditEntity =
   | 'transaction'
   | 'credit_line'
   | 'credit_card'
+  | 'loan'
   | 'recurrence'
   | 'user'
   | 'settings'
