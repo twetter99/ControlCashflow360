@@ -80,9 +80,27 @@ export async function withErrorHandling<T>(
   try {
     return await handler();
   } catch (error) {
-    console.error('API Error:', error);
-    const message = error instanceof Error ? error.message : 'Error interno del servidor';
-    return errorResponse(message, 500, 'INTERNAL_ERROR') as NextResponse<ApiResponse<T | undefined>>;
+    // Log detallado del error
+    console.error('[API Error] ========================================');
+    console.error('[API Error] Timestamp:', new Date().toISOString());
+    console.error('[API Error] Message:', error instanceof Error ? error.message : 'Error desconocido');
+    console.error('[API Error] Stack:', error instanceof Error ? error.stack : 'No stack trace');
+    
+    // Detectar errores específicos de Firebase
+    const errorMessage = error instanceof Error ? error.message : 'Error interno del servidor';
+    
+    if (errorMessage.includes('Firebase Admin') || errorMessage.includes('FIREBASE_SERVICE_ACCOUNT_KEY')) {
+      console.error('[API Error] 🔥 Este es un error de configuración de Firebase Admin');
+      console.error('[API Error] Verifica que FIREBASE_SERVICE_ACCOUNT_KEY esté configurada en Vercel');
+    }
+    
+    if (errorMessage.includes('permission-denied') || errorMessage.includes('PERMISSION_DENIED')) {
+      console.error('[API Error] 🔒 Error de permisos en Firestore - verifica las reglas de seguridad');
+    }
+    
+    console.error('[API Error] ========================================');
+    
+    return errorResponse(errorMessage, 500, 'INTERNAL_ERROR') as NextResponse<ApiResponse<T | undefined>>;
   }
 }
 

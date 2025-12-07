@@ -31,10 +31,12 @@ type ApiResponse<T> = {
  */
 async function getAuthToken(): Promise<string> {
   if (!auth) {
+    console.error('[API Client] ❌ Firebase Auth no inicializado');
     throw new Error('Firebase Auth no inicializado');
   }
   const user = auth.currentUser;
   if (!user) {
+    console.warn('[API Client] Usuario no autenticado - redirigiendo a login');
     throw new Error('Usuario no autenticado');
   }
   return user.getIdToken();
@@ -61,6 +63,21 @@ async function apiRequest<T>(
   const result: ApiResponse<T> = await response.json();
 
   if (!result.success) {
+    // Log detallado del error para debugging
+    console.error('[API Client] ❌ Error en petición:', endpoint);
+    console.error('[API Client] Status:', response.status);
+    console.error('[API Client] Error:', result.error);
+    console.error('[API Client] Code:', result.code);
+    
+    // Mensajes de ayuda para errores comunes
+    if (response.status === 500 && result.error?.includes('Firebase')) {
+      console.error('[API Client] 💡 Posible problema de configuración de Firebase en el servidor');
+      console.error('[API Client] Verifica que FIREBASE_SERVICE_ACCOUNT_KEY esté configurada en Vercel');
+    }
+    if (result.code === 'UNAUTHORIZED' || result.code === 'INVALID_TOKEN') {
+      console.error('[API Client] 💡 Problema de autenticación - intenta cerrar sesión y volver a entrar');
+    }
+    
     throw new Error(result.error || 'Error en la petición');
   }
 

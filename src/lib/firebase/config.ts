@@ -19,6 +19,17 @@ const isFirebaseConfigured =
   firebaseConfig.apiKey !== 'your-api-key-here' &&
   firebaseConfig.projectId;
 
+// Logging de configuración (solo en cliente y desarrollo)
+if (typeof window !== 'undefined') {
+  const isProduction = process.env.NODE_ENV === 'production';
+  console.log('[Firebase Client] ========================================');
+  console.log('[Firebase Client] Entorno:', isProduction ? 'PRODUCCIÓN' : 'DESARROLLO');
+  console.log('[Firebase Client] Project ID:', firebaseConfig.projectId || 'NO CONFIGURADO');
+  console.log('[Firebase Client] Auth Domain:', firebaseConfig.authDomain || 'NO CONFIGURADO');
+  console.log('[Firebase Client] Configurado:', isFirebaseConfigured ? '✅ SÍ' : '❌ NO');
+  console.log('[Firebase Client] ========================================');
+}
+
 // Inicializar Firebase solo si está configurado y no está ya inicializado
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
@@ -28,6 +39,13 @@ if (isFirebaseConfigured) {
   app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   auth = getAuth(app);
   db = getFirestore(app);
+  
+  if (typeof window !== 'undefined') {
+    console.log('[Firebase Client] ✅ Firebase inicializado correctamente');
+  }
+} else if (typeof window !== 'undefined') {
+  console.error('[Firebase Client] ❌ Firebase NO está configurado');
+  console.error('[Firebase Client] Verifica las variables de entorno NEXT_PUBLIC_FIREBASE_*');
 }
 
 /**
