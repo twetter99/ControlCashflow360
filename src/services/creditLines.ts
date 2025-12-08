@@ -27,6 +27,7 @@ function documentToCreditLine(id: string, data: DocumentData): CreditLine {
     companyId: data.companyId,
     bankName: data.bankName,
     alias: data.alias,
+    lineType: data.lineType || 'CREDIT_LINE',
     creditLimit: data.creditLimit,
     currentDrawn: data.currentDrawn,
     available: data.available,
