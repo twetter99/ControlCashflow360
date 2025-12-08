@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountsApi, creditLinesApi, creditCardsApi, companiesApi } from '@/lib/api-client';
-import { Account, CreditLine, CreditCard, Company } from '@/types';
+import { accountsApi, creditLinesApi, creditCardsApi, companiesApi, accountHoldsApi } from '@/lib/api-client';
+import { Account, CreditLine, CreditCard, Company, AccountHold, AccountHoldType } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Save, 
@@ -17,7 +17,11 @@ import {
   TrendingDown,
   Wallet,
   Receipt,
-  CreditCard as CreditCardIcon
+  CreditCard as CreditCardIcon,
+  Lock,
+  Plus,
+  X,
+  Calendar
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 
@@ -29,6 +33,16 @@ interface BalanceUpdate {
   type: 'account' | 'creditLine' | 'creditCard';
 }
 
+// Mapeo de tipos de retención a español
+const holdTypeLabels: Record<AccountHoldType, string> = {
+  JUDICIAL: 'Embargo judicial',
+  TAX: 'Retención fiscal',
+  BANK_GUARANTEE: 'Aval bancario',
+  PARTIAL: 'Retención parcial',
+  FRAUD_BLOCK: 'Bloqueo por fraude',
+  OTHER: 'Otros',
+};
+
 export default function MorningCheckPage() {
   const { selectedCompanyId } = useCompanyFilter();
   const { user } = useAuth();
@@ -36,11 +50,73 @@ export default function MorningCheckPage() {
   const [creditLines, setCreditLines] = useState<CreditLine[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
   const [loading, setLoading] = useState(true);
   const [balanceUpdates, setBalanceUpdates] = useState<Record<string, BalanceUpdate>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [savedItems, setSavedItems] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<'accounts' | 'creditLines' | 'creditCards'>('accounts');
+  
+  // Estado para modal de retenciones
+  const [holdModalOpen, setHoldModalOpen] = useState(false);
+  const [selectedAccountForHold, setSelectedAccountForHold] = useState<Account | null>(null);
+  const [holdForm, setHoldForm] = useState({
+    concept: '',
+    amount: '',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: '',
+    type: 'PARTIAL' as AccountHoldType,
+    reference: '',
+    notes: '',
+  });
+  const [isSavingHold, setIsSavingHold] = useState(false);
+
+  // Cargar datos via API
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [accountsData, creditLinesData, creditCardsData, companiesData, holdsData] = await Promise.all([
+          accountsApi.getAll(),
+          creditLinesApi.getAll(),
+          creditCardsApi.getAll(),
+          companiesApi.getAll(),
+          accountHoldsApi.getAll(undefined, 'ACTIVE')
+        ]);
+        
+        setAccounts(accountsData);
+        setCreditLines(creditLinesData);
+        setCreditCards(creditCardsData);
+        setCompanies(companiesData);
+        setAccountHolds(holdsData);
+      } catch (error) {
+        console.error('Error cargando datos:', error);
+        toast.error('Error al cargar los datos');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [user]);
+
+  // Obtener retenciones activas de una cuenta
+  const getAccountHolds = (accountId: string): AccountHold[] => {
+    return accountHolds.filter(h => h.accountId === accountId && h.status === 'ACTIVE');
+  };
+
+  // Calcular total retenido de una cuenta
+  const getTotalHoldAmount = (accountId: string): number => {
+    return getAccountHolds(accountId).reduce((sum, h) => sum + h.amount, 0);
+  };
+
+  // Calcular saldo disponible de una cuenta
+  const getAvailableBalance = (account: Account): number => {
+    const holdAmount = getTotalHoldAmount(account.id);
+    return account.currentBalance - holdAmount;
+  };
 
   // Cargar datos via API
   useEffect(() => {
@@ -97,6 +173,84 @@ export default function MorningCheckPage() {
     return sum + (update ? parseFloat(update.newBalance) || acc.currentBalance : acc.currentBalance);
   }, 0);
   const accountDifference = totalNewAccountBalance - totalPreviousAccountBalance;
+  
+  // Calcular total de retenciones activas
+  const totalHoldsAmount = filteredAccounts.reduce((sum, acc) => sum + getTotalHoldAmount(acc.id), 0);
+  const totalAvailableBalance = totalNewAccountBalance - totalHoldsAmount;
+
+  // Abrir modal para añadir retención
+  const openHoldModal = (account: Account) => {
+    setSelectedAccountForHold(account);
+    setHoldForm({
+      concept: '',
+      amount: '',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: '',
+      type: 'PARTIAL',
+      reference: '',
+      notes: '',
+    });
+    setHoldModalOpen(true);
+  };
+
+  // Guardar nueva retención
+  const handleSaveHold = async () => {
+    if (!selectedAccountForHold) return;
+    
+    if (!holdForm.concept || !holdForm.amount || parseFloat(holdForm.amount) <= 0) {
+      toast.error('Completa el concepto y el importe');
+      return;
+    }
+
+    setIsSavingHold(true);
+    try {
+      const newHold = await accountHoldsApi.create({
+        accountId: selectedAccountForHold.id,
+        companyId: selectedAccountForHold.companyId,
+        concept: holdForm.concept,
+        amount: parseFloat(holdForm.amount),
+        startDate: new Date(holdForm.startDate),
+        endDate: holdForm.endDate ? new Date(holdForm.endDate) : null,
+        type: holdForm.type,
+        reference: holdForm.reference || undefined,
+        notes: holdForm.notes || undefined,
+      });
+      
+      setAccountHolds(prev => [...prev, newHold]);
+      setHoldModalOpen(false);
+      toast.success('Retención registrada correctamente');
+    } catch (error) {
+      console.error('Error guardando retención:', error);
+      toast.error('Error al guardar la retención');
+    } finally {
+      setIsSavingHold(false);
+    }
+  };
+
+  // Liberar una retención
+  const handleReleaseHold = async (holdId: string) => {
+    try {
+      await accountHoldsApi.release(holdId);
+      setAccountHolds(prev => prev.filter(h => h.id !== holdId));
+      toast.success('Retención liberada');
+    } catch (error) {
+      console.error('Error liberando retención:', error);
+      toast.error('Error al liberar la retención');
+    }
+  };
+
+  // Calcular días restantes de una retención
+  const getDaysRemaining = (endDate: Date | null | undefined): string => {
+    if (!endDate) return 'Indefinida';
+    const end = new Date(endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = end.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return 'Vencida';
+    if (diffDays === 0) return 'Hoy';
+    return `${diffDays} días`;
+  };
 
   // Calcular totales para tarjetas de crédito (deuda)
   const totalCreditCardDebt = filteredCreditCards.reduce((sum, cc) => {
@@ -234,7 +388,7 @@ export default function MorningCheckPage() {
       </div>
 
       {/* Resumen Global */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <div className="text-center">
             <p className="text-sm text-gray-500">Saldo en Cuentas</p>
@@ -251,6 +405,21 @@ export default function MorningCheckPage() {
             )}
           </div>
         </Card>
+        {totalHoldsAmount > 0 && (
+          <Card>
+            <div className="text-center">
+              <p className="text-sm text-gray-500 flex items-center justify-center">
+                <Lock size={12} className="mr-1" /> Retenciones
+              </p>
+              <p className="text-2xl font-bold text-amber-600 mt-1">
+                -{formatCurrency(totalHoldsAmount)}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Saldo disponible: {formatCurrency(totalAvailableBalance)}
+              </p>
+            </div>
+          </Card>
+        )}
         <Card>
           <div className="text-center">
             <p className="text-sm text-gray-500">Deuda en Tarjetas</p>
@@ -263,10 +432,13 @@ export default function MorningCheckPage() {
           <div className="text-center">
             <p className="text-sm text-gray-500">Posición Neta</p>
             <p className={`text-2xl font-bold mt-1 ${
-              (totalNewAccountBalance - totalCreditCardDebt) >= 0 ? 'text-gray-900' : 'text-red-600'
+              (totalAvailableBalance - totalCreditCardDebt) >= 0 ? 'text-gray-900' : 'text-red-600'
             }`}>
-              {formatCurrency(totalNewAccountBalance - totalCreditCardDebt)}
+              {formatCurrency(totalAvailableBalance - totalCreditCardDebt)}
             </p>
+            {totalHoldsAmount > 0 && (
+              <p className="text-xs text-gray-400 mt-1">(Descontadas retenciones)</p>
+            )}
           </div>
         </Card>
         <Card>
@@ -360,74 +532,127 @@ export default function MorningCheckPage() {
                     const difference = update?.difference || 0;
                     const isSaved = savedItems.has(key);
                     const stale = isStale(account.lastUpdateDate);
+                    const holds = getAccountHolds(account.id);
+                    const holdAmount = getTotalHoldAmount(account.id);
+                    const availableBalance = getAvailableBalance(account);
                     
                     return (
-                      <tr key={account.id} className="border-b last:border-0">
-                        <td className="py-4">
-                          <div className="flex items-center">
-                            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center mr-3">
-                              <span className="font-bold text-gray-500 text-sm">
-                                {account.bankName.substring(0, 2).toUpperCase()}
-                              </span>
+                      <React.Fragment key={account.id}>
+                        <tr className="border-b last:border-0">
+                          <td className="py-4">
+                            <div className="flex items-center">
+                              <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center mr-3">
+                                <span className="font-bold text-gray-500 text-sm">
+                                  {account.bankName.substring(0, 2).toUpperCase()}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-900">{account.bankName}</p>
+                                <p className="text-sm text-gray-500">{account.alias}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium text-gray-900">{account.bankName}</p>
-                              <p className="text-sm text-gray-500">{account.alias}</p>
+                          </td>
+                          <td className="py-4">
+                            <span className="text-sm text-gray-600">{getCompanyName(account.companyId)}</span>
+                          </td>
+                          <td className="py-4 text-right">
+                            <span className="text-gray-900 font-medium">
+                              {formatCurrency(account.currentBalance)}
+                            </span>
+                            {holdAmount > 0 && (
+                              <div className="text-amber-600 text-xs mt-1">
+                                <Lock size={10} className="inline mr-1" />
+                                Disponible: {formatCurrency(availableBalance)}
+                              </div>
+                            )}
+                            {stale && (
+                              <div className="flex items-center justify-end mt-1 text-amber-600">
+                                <AlertCircle size={12} className="mr-1" />
+                                <span className="text-xs">{formatLastUpdate(account.lastUpdateDate)}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-4">
+                            <div className="max-w-[180px] mx-auto">
+                              <input
+                                type="number"
+                                step="0.01"
+                                placeholder={formatCurrency(account.currentBalance)}
+                                value={update?.newBalance || ''}
+                                onChange={(e) => handleBalanceChange(account.id, e.target.value, account.currentBalance, 'account')}
+                                className="w-full px-4 py-3 text-right text-lg font-medium border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                disabled={isSaved}
+                              />
                             </div>
-                          </div>
-                        </td>
-                        <td className="py-4">
-                          <span className="text-sm text-gray-600">{getCompanyName(account.companyId)}</span>
-                        </td>
-                        <td className="py-4 text-right">
-                          <span className="text-gray-900 font-medium">
-                            {formatCurrency(account.currentBalance)}
-                          </span>
-                          {stale && (
-                            <div className="flex items-center justify-end mt-1 text-amber-600">
-                              <AlertCircle size={12} className="mr-1" />
-                              <span className="text-xs">{formatLastUpdate(account.lastUpdateDate)}</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-4">
-                          <div className="max-w-[180px] mx-auto">
-                            <input
-                              type="number"
-                              step="0.01"
-                              placeholder={formatCurrency(account.currentBalance)}
-                              value={update?.newBalance || ''}
-                              onChange={(e) => handleBalanceChange(account.id, e.target.value, account.currentBalance, 'account')}
-                              className="w-full px-4 py-3 text-right text-lg font-medium border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                              disabled={isSaved}
-                            />
-                          </div>
-                        </td>
-                        <td className="py-4 text-right">
-                          {update && (
-                            <span className={`font-semibold ${
+                          </td>
+                          <td className="py-4 text-right">
+                            {update && (
+                              <span className={`font-semibold ${
                               difference > 0 ? 'text-green-600' : difference < 0 ? 'text-red-600' : 'text-gray-400'
                             }`}>
                               {difference > 0 ? '+' : ''}{formatCurrency(difference)}
                             </span>
                           )}
-                        </td>
-                        <td className="py-4 text-center">
-                          {isSaved ? (
-                            <span className="inline-flex items-center text-green-600">
-                              <Check size={16} className="mr-1" />
-                              Guardado
-                            </span>
-                          ) : update ? (
-                            <span className="inline-flex items-center text-amber-600">
-                              <RefreshCw size={16} className="mr-1" />
-                              Pendiente
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="py-4 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              {isSaved ? (
+                                <span className="inline-flex items-center text-green-600">
+                                  <Check size={16} className="mr-1" />
+                                  Guardado
+                                </span>
+                              ) : update ? (
+                                <span className="inline-flex items-center text-amber-600">
+                                  <RefreshCw size={16} className="mr-1" />
+                                  Pendiente
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                              <button
+                                onClick={() => openHoldModal(account)}
+                                className="text-xs text-gray-500 hover:text-amber-600 flex items-center"
+                                title="Añadir retención"
+                              >
+                                <Lock size={12} className="mr-1" />
+                                {holds.length > 0 ? `${holds.length} retención(es)` : '+ Retención'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {/* Fila expandible con retenciones activas */}
+                        {holds.length > 0 && (
+                          <tr className="bg-amber-50">
+                            <td colSpan={6} className="px-4 py-2">
+                              <div className="flex flex-wrap gap-2">
+                                {holds.map((hold) => (
+                                  <div 
+                                    key={hold.id}
+                                    className="bg-white border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2 text-sm"
+                                  >
+                                    <Lock size={14} className="text-amber-600" />
+                                    <span className="font-medium">{formatCurrency(hold.amount)}</span>
+                                    <span className="text-gray-500">-</span>
+                                    <span className="text-gray-600">{hold.concept}</span>
+                                    <span className="text-gray-400">|</span>
+                                    <span className="text-xs text-gray-500 flex items-center">
+                                      <Calendar size={10} className="mr-1" />
+                                      {getDaysRemaining(hold.endDate)}
+                                    </span>
+                                    <button
+                                      onClick={() => handleReleaseHold(hold.id)}
+                                      className="ml-2 text-gray-400 hover:text-green-600"
+                                      title="Liberar retención"
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -648,6 +873,146 @@ export default function MorningCheckPage() {
           Guardar Todos los Cambios ({Object.keys(balanceUpdates).length})
         </Button>
       </div>
+
+      {/* Modal para añadir retención */}
+      {holdModalOpen && selectedAccountForHold && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Añadir Retención
+              </h3>
+              <button
+                onClick={() => setHoldModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-600">Cuenta:</p>
+              <p className="font-medium text-gray-900">
+                {selectedAccountForHold.bankName} - {selectedAccountForHold.alias}
+              </p>
+              <p className="text-sm text-gray-500">
+                Saldo actual: {formatCurrency(selectedAccountForHold.currentBalance)}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Concepto *
+                </label>
+                <input
+                  type="text"
+                  value={holdForm.concept}
+                  onChange={(e) => setHoldForm(prev => ({ ...prev, concept: e.target.value }))}
+                  placeholder="Ej: Parcial por motivos varios"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Importe retenido *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={holdForm.amount}
+                  onChange={(e) => setHoldForm(prev => ({ ...prev, amount: e.target.value }))}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tipo de retención
+                </label>
+                <select
+                  value={holdForm.type}
+                  onChange={(e) => setHoldForm(prev => ({ ...prev, type: e.target.value as AccountHoldType }))}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  {Object.entries(holdTypeLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Fecha inicio
+                  </label>
+                  <input
+                    type="date"
+                    value={holdForm.startDate}
+                    onChange={(e) => setHoldForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Fecha fin (opcional)
+                  </label>
+                  <input
+                    type="date"
+                    value={holdForm.endDate}
+                    onChange={(e) => setHoldForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Referencia (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={holdForm.reference}
+                  onChange={(e) => setHoldForm(prev => ({ ...prev, reference: e.target.value }))}
+                  placeholder="Nº referencia del banco"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notas (opcional)
+                </label>
+                <textarea
+                  value={holdForm.notes}
+                  onChange={(e) => setHoldForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Notas adicionales..."
+                  rows={2}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => setHoldModalOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleSaveHold}
+                isLoading={isSavingHold}
+              >
+                <Lock size={16} className="mr-2" />
+                Registrar Retención
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

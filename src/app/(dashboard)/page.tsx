@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi } from '@/lib/api-client';
-import { Account, CreditLine, Transaction, IncomeLayer } from '@/types';
+import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi } from '@/lib/api-client';
+import { Account, CreditLine, Transaction, IncomeLayer, AccountHold } from '@/types';
 import { 
   Wallet, 
   TrendingUp, 
@@ -20,7 +20,8 @@ import {
   RefreshCw,
   Check,
   X,
-  ExternalLink
+  ExternalLink,
+  Lock
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Link from 'next/link';
@@ -88,6 +89,7 @@ export default function DashboardPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [creditLines, setCreditLines] = useState<CreditLine[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
   
   // Objetivo mensual de ingresos (Sistema 3 Capas)
   const [monthlyIncomeGoal, setMonthlyIncomeGoal] = useState<number>(0);
@@ -149,14 +151,16 @@ export default function DashboardPage() {
         }
         
         // Luego cargar todos los datos
-        const [accountsData, creditLinesData, transactionsData] = await Promise.all([
+        const [accountsData, creditLinesData, transactionsData, holdsData] = await Promise.all([
           accountsApi.getAll(),
           creditLinesApi.getAll(),
-          transactionsApi.getAll()
+          transactionsApi.getAll(),
+          accountHoldsApi.getAll(undefined, 'ACTIVE')
         ]);
         setAccounts(accountsData);
         setCreditLines(creditLinesData);
         setTransactions(transactionsData);
+        setAccountHolds(holdsData);
       } catch (error) {
         console.error('Error cargando datos del dashboard:', error);
       } finally {
@@ -245,7 +249,15 @@ export default function DashboardPage() {
   // ==========================================
   const totalBankBalance = filteredAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
   const totalCreditAvailable = filteredCreditLines.reduce((sum, cl) => sum + cl.available, 0);
-  const totalLiquidity = totalBankBalance + totalCreditAvailable;
+  
+  // Calcular retenciones activas
+  const filteredHolds = selectedCompanyId
+    ? accountHolds.filter(h => h.companyId === selectedCompanyId && h.status === 'ACTIVE')
+    : accountHolds.filter(h => h.status === 'ACTIVE');
+  const totalHoldsAmount = filteredHolds.reduce((sum, h) => sum + h.amount, 0);
+  const totalAvailableBalance = totalBankBalance - totalHoldsAmount;
+  
+  const totalLiquidity = totalAvailableBalance + totalCreditAvailable;
 
   // ==========================================
   // CAPA 2: PREVISIONES (MOVIMIENTOS)
@@ -344,7 +356,8 @@ export default function DashboardPage() {
       return budget?.incomeGoal || 0;
     };
     
-    let runningBalance = totalBankBalance; // Empezamos con el saldo actual en bancos
+    // Empezamos con el saldo disponible (descontando retenciones) para previsiones más realistas
+    let runningBalance = totalAvailableBalance;
     
     return monthlyPeriods.map((period, index) => {
       // Filtrar transacciones SOLO de este mes específico
@@ -402,12 +415,13 @@ export default function DashboardPage() {
   const forecastBuckets = calculateForecastBuckets();
 
   // Calcular runway (días que puedo sobrevivir con el saldo actual)
+  // Usamos el saldo disponible (descontando retenciones) para un cálculo más realista
   const monthlyExpenses = pendingTransactions
     .filter(tx => tx.type === 'EXPENSE')
     .reduce((sum, tx) => sum + tx.amount, 0) / 3; // Promedio mensual
   
   const dailyBurn = monthlyExpenses / 30;
-  const runway = dailyBurn > 0 ? Math.round(totalBankBalance / dailyBurn) : 999;
+  const runway = dailyBurn > 0 ? Math.round(totalAvailableBalance / dailyBurn) : 999;
 
   // Función para filtrar transacciones por días
   const getTransactionsInDays = (days: number) => {
@@ -586,12 +600,23 @@ export default function DashboardPage() {
           <Building2 size={24} className="mr-2" />
           <h2 className="text-lg font-semibold">Situación Actual (Real)</h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <div>
             <p className="text-blue-200 text-sm">Saldo en Bancos</p>
             <p className="text-3xl font-bold">{formatCurrency(totalBankBalance)}</p>
             <p className="text-blue-200 text-xs mt-1">{filteredAccounts.length} cuentas activas</p>
           </div>
+          {totalHoldsAmount > 0 && (
+            <div>
+              <p className="text-amber-300 text-sm flex items-center">
+                <Lock size={12} className="mr-1" /> Retenciones
+              </p>
+              <p className="text-2xl font-bold text-amber-300">-{formatCurrency(totalHoldsAmount)}</p>
+              <p className="text-amber-200 text-xs mt-1">
+                Disponible: {formatCurrency(totalAvailableBalance)}
+              </p>
+            </div>
+          )}
           <div>
             <p className="text-blue-200 text-sm">Pólizas Disponibles</p>
             <p className="text-3xl font-bold">{formatCurrency(totalCreditAvailable)}</p>
@@ -600,7 +625,9 @@ export default function DashboardPage() {
           <div>
             <p className="text-blue-200 text-sm">Liquidez Total</p>
             <p className="text-3xl font-bold">{formatCurrency(totalLiquidity)}</p>
-            <p className="text-blue-200 text-xs mt-1">Bancos + Crédito disponible</p>
+            <p className="text-blue-200 text-xs mt-1">
+              {totalHoldsAmount > 0 ? 'Disponible + Crédito' : 'Bancos + Crédito'}
+            </p>
           </div>
           <div>
             <p className="text-blue-200 text-sm">Runway</p>

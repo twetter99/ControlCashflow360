@@ -567,6 +567,63 @@ export type UpdateRecurrenceInput = z.infer<typeof UpdateRecurrenceSchema>;
 export type RegenerateOccurrencesInput = z.infer<typeof RegenerateOccurrencesSchema>;
 
 // ============================================
+// ACCOUNT HOLD (RETENCIONES) SCHEMAS
+// ============================================
+
+export const AccountHoldTypeSchema = z.enum([
+  'JUDICIAL',
+  'TAX',
+  'BANK_GUARANTEE',
+  'PARTIAL',
+  'FRAUD_BLOCK',
+  'OTHER'
+]);
+
+export const AccountHoldStatusSchema = z.enum(['ACTIVE', 'RELEASED', 'EXPIRED']);
+
+export const CreateAccountHoldSchema = z.object({
+  accountId: z.string()
+    .min(1, 'El ID de cuenta es requerido'),
+  companyId: z.string()
+    .min(1, 'El ID de empresa es requerido'),
+  concept: sanitizedString(200)
+    .pipe(z.string().min(1, 'El concepto es requerido').max(200, 'El concepto no puede exceder 200 caracteres')),
+  amount: z.number()
+    .positive('El importe debe ser mayor que 0')
+    .finite('El importe debe ser un número válido'),
+  startDate: z.string()
+    .min(1, 'La fecha de inicio es requerida'),
+  endDate: z.string()
+    .nullable()
+    .optional(),
+  type: AccountHoldTypeSchema,
+  reference: sanitizedString(100)
+    .pipe(z.string().max(100, 'La referencia no puede exceder 100 caracteres'))
+    .optional(),
+  notes: sanitizedString(500)
+    .pipe(z.string().max(500, 'Las notas no pueden exceder 500 caracteres'))
+    .optional(),
+});
+
+export const UpdateAccountHoldSchema = z.object({
+  concept: sanitizedString(200)
+    .pipe(z.string().min(1).max(200))
+    .optional(),
+  amount: z.number().positive().finite().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().nullable().optional(),
+  type: AccountHoldTypeSchema.optional(),
+  status: AccountHoldStatusSchema.optional(),
+  reference: sanitizedString(100).pipe(z.string().max(100)).optional(),
+  notes: sanitizedString(500).pipe(z.string().max(500)).optional(),
+}).refine(data => Object.keys(data).length > 0, {
+  message: 'Debe proporcionar al menos un campo para actualizar',
+});
+
+export type CreateAccountHoldInput = z.infer<typeof CreateAccountHoldSchema>;
+export type UpdateAccountHoldInput = z.infer<typeof UpdateAccountHoldSchema>;
+
+// ============================================
 // UTILIDAD PARA VALIDAR Y FORMATEAR ERRORES
 // ============================================
 

@@ -82,6 +82,24 @@ service cloud.firestore {
     }
     
     // ============================
+    // COLECCIÓN: account_holds (Retenciones de Saldo)
+    // ============================
+    match /account_holds/{holdId} {
+      // Leer: solo propietario
+      allow read: if belongsToUser();
+      
+      // Crear: debe incluir userId del usuario autenticado
+      allow create: if willBelongToUser();
+      
+      // Actualizar: solo propietario, no puede cambiar userId
+      allow update: if belongsToUser() && 
+        request.resource.data.userId == resource.data.userId;
+      
+      // Eliminar: solo propietario
+      allow delete: if belongsToUser();
+    }
+    
+    // ============================
     // COLECCIÓN: credit_lines
     // ============================
     match /credit_lines/{creditLineId} {

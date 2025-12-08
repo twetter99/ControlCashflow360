@@ -5,6 +5,7 @@ import {
   Transaction,
   CreditLine,
   CreditCard,
+  AccountHold,
   CreateCompanyInput,
   UpdateCompanyInput,
   CreateAccountInput,
@@ -13,6 +14,8 @@ import {
   UpdateTransactionInput,
   CreateCreditLineInput,
   UpdateCreditLineInput,
+  CreateAccountHoldInput,
+  UpdateAccountHoldInput,
 } from '@/types';
 import {
   CreateCreditCardInput,
@@ -195,6 +198,95 @@ export const accountsApi = {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+  },
+};
+
+// ============================================
+// ACCOUNT HOLDS API (Retenciones)
+// ============================================
+
+export const accountHoldsApi = {
+  /**
+   * Obtener todas las retenciones del usuario
+   */
+  async getAll(accountId?: string, status?: string): Promise<AccountHold[]> {
+    const params = new URLSearchParams();
+    if (accountId) params.append('accountId', accountId);
+    if (status) params.append('status', status);
+    const queryString = params.toString();
+    const url = queryString ? `/api/account-holds?${queryString}` : '/api/account-holds';
+    return apiRequest<AccountHold[]>(url);
+  },
+
+  /**
+   * Obtener retenciones activas de una cuenta
+   */
+  async getActiveByAccount(accountId: string): Promise<AccountHold[]> {
+    return this.getAll(accountId, 'ACTIVE');
+  },
+
+  /**
+   * Obtener retención por ID
+   */
+  async getById(id: string): Promise<AccountHold> {
+    return apiRequest<AccountHold>(`/api/account-holds/${id}`);
+  },
+
+  /**
+   * Crear nueva retención
+   */
+  async create(data: CreateAccountHoldInput): Promise<AccountHold> {
+    return apiRequest<AccountHold>('/api/account-holds', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar retención
+   */
+  async update(id: string, data: UpdateAccountHoldInput): Promise<AccountHold> {
+    return apiRequest<AccountHold>(`/api/account-holds/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Liberar retención (marcarla como liberada)
+   */
+  async release(id: string): Promise<{ released: boolean; id: string }> {
+    return apiRequest<{ released: boolean; id: string }>(`/api/account-holds/${id}`, {
+      method: 'PATCH',
+    });
+  },
+
+  /**
+   * Eliminar retención
+   */
+  async delete(id: string): Promise<{ deleted: boolean; id: string }> {
+    return apiRequest<{ deleted: boolean; id: string }>(`/api/account-holds/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Calcular saldo disponible de una cuenta (saldo - retenciones activas)
+   */
+  async getAvailableBalance(accountId: string, currentBalance: number): Promise<{
+    currentBalance: number;
+    holdAmount: number;
+    availableBalance: number;
+    activeHoldsCount: number;
+  }> {
+    const activeHolds = await this.getActiveByAccount(accountId);
+    const holdAmount = activeHolds.reduce((sum, hold) => sum + hold.amount, 0);
+    return {
+      currentBalance,
+      holdAmount,
+      availableBalance: currentBalance - holdAmount,
+      activeHoldsCount: activeHolds.length,
+    };
   },
 };
 

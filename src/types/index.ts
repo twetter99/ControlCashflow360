@@ -81,6 +81,10 @@ export interface Account {
   alias: string;
   accountNumber: string;
   currentBalance: number;
+  // Campos de retenciones (calculados desde account_holds)
+  holdAmount?: number;         // Total retenido (suma de retenciones activas)
+  availableBalance?: number;   // Saldo disponible = currentBalance - holdAmount
+  activeHoldsCount?: number;   // Número de retenciones activas
   lastUpdateAmount: number;
   lastUpdateDate: Date;
   lastUpdatedBy: string;
@@ -88,6 +92,76 @@ export interface Account {
   isPrimary?: boolean; // Cuenta principal/favorita
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+// ============================================
+// Colección: account_holds (Retenciones de Saldo)
+// ============================================
+
+export type AccountHoldType = 
+  | 'JUDICIAL'        // Embargo judicial
+  | 'TAX'             // Retención de Hacienda/AEAT
+  | 'BANK_GUARANTEE'  // Aval bancario
+  | 'PARTIAL'         // Retención parcial por motivos varios
+  | 'FRAUD_BLOCK'     // Bloqueo por sospecha de fraude
+  | 'OTHER';          // Otros motivos
+
+export type AccountHoldStatus = 'ACTIVE' | 'RELEASED' | 'EXPIRED';
+
+export interface AccountHold {
+  id: string;
+  userId: string;
+  companyId: string;
+  accountId: string;           // Cuenta afectada
+  
+  // Datos de la retención
+  concept: string;             // Descripción: "PARCIAL POR MOTIVOS VARIOS", etc.
+  amount: number;              // Importe retenido
+  startDate: Date;             // Fecha inicio retención
+  endDate?: Date | null;       // Fecha fin (null = indefinida)
+  
+  // Clasificación
+  type: AccountHoldType;
+  
+  // Estado
+  status: AccountHoldStatus;
+  
+  // Documentación
+  reference?: string;          // Número de referencia del banco
+  notes?: string;
+  
+  // Auditoría
+  createdBy?: string;
+  lastUpdatedBy?: string;
+  releasedAt?: Date;           // Cuando se liberó
+  releasedBy?: string;         // Quién la liberó
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Input para crear retención
+export interface CreateAccountHoldInput {
+  accountId: string;
+  companyId: string;
+  concept: string;
+  amount: number;
+  startDate: Date;
+  endDate?: Date | null;
+  type: AccountHoldType;
+  reference?: string;
+  notes?: string;
+}
+
+// Input para actualizar retención
+export interface UpdateAccountHoldInput {
+  concept?: string;
+  amount?: number;
+  startDate?: Date;
+  endDate?: Date | null;
+  type?: AccountHoldType;
+  reference?: string;
+  notes?: string;
+  status?: AccountHoldStatus;
 }
 
 // ============================================
