@@ -25,6 +25,14 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 
+// Formatea IBAN en bloques de 4 caracteres para mejor legibilidad
+const formatIbanDisplay = (iban: string): string => {
+  if (!iban) return '';
+  // Eliminar espacios existentes y formatear en bloques de 4
+  const clean = iban.replace(/\s/g, '');
+  return clean.match(/.{1,4}/g)?.join(' ') || clean;
+};
+
 interface BalanceUpdate {
   id: string;
   newBalance: string;
@@ -549,6 +557,7 @@ export default function MorningCheckPage() {
                               <div>
                                 <p className="font-medium text-gray-900">{account.bankName}</p>
                                 <p className="text-sm text-gray-500">{account.alias}</p>
+                                <p className="text-xs text-gray-400 font-mono mt-0.5">{formatIbanDisplay(account.accountNumber)}</p>
                               </div>
                             </div>
                           </td>
@@ -559,7 +568,7 @@ export default function MorningCheckPage() {
                             <span className="text-gray-900 font-medium">
                               {formatCurrency(account.currentBalance)}
                             </span>
-                            {holdAmount > 0 && (
+                            {holdAmount > 0 && !update && (
                               <div className="text-amber-600 text-xs mt-1">
                                 <Lock size={10} className="inline mr-1" />
                                 Disponible: {formatCurrency(availableBalance)}
@@ -583,6 +592,12 @@ export default function MorningCheckPage() {
                                 className="w-full px-4 py-3 text-right text-lg font-medium border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                                 disabled={isSaved}
                               />
+                              {holdAmount > 0 && update && (
+                                <div className="text-amber-600 text-xs mt-1 text-right">
+                                  <Lock size={10} className="inline mr-1" />
+                                  Disponible: {formatCurrency(parseFloat(update.newBalance) - holdAmount)}
+                                </div>
+                              )}
                             </div>
                           </td>
                           <td className="py-4 text-right">
@@ -876,9 +891,9 @@ export default function MorningCheckPage() {
 
       {/* Modal para añadir retención */}
       {holdModalOpen && selectedAccountForHold && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">
                 Añadir Retención
               </h3>
@@ -890,17 +905,16 @@ export default function MorningCheckPage() {
               </button>
             </div>
             
-            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">Cuenta:</p>
-              <p className="font-medium text-gray-900">
-                {selectedAccountForHold.bankName} - {selectedAccountForHold.alias}
-              </p>
-              <p className="text-sm text-gray-500">
-                Saldo actual: {formatCurrency(selectedAccountForHold.currentBalance)}
-              </p>
-            </div>
-
-            <div className="space-y-4">
+            <div className="p-6 space-y-4">
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Cuenta:</p>
+                <p className="font-medium text-gray-900">
+                  {selectedAccountForHold.bankName} - {selectedAccountForHold.alias}
+                </p>
+                <p className="text-sm text-gray-500">
+                  Saldo actual: {formatCurrency(selectedAccountForHold.currentBalance)}
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Concepto *
@@ -993,22 +1007,22 @@ export default function MorningCheckPage() {
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
               </div>
-            </div>
 
-            <div className="flex justify-end gap-3 mt-6">
-              <Button
-                variant="outline"
-                onClick={() => setHoldModalOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button
-                onClick={handleSaveHold}
-                isLoading={isSavingHold}
-              >
-                <Lock size={16} className="mr-2" />
-                Registrar Retención
-              </Button>
+              <div className="flex justify-end gap-3 pt-4 border-t mt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setHoldModalOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleSaveHold}
+                  isLoading={isSavingHold}
+                >
+                  <Lock size={16} className="mr-2" />
+                  Registrar Retención
+                </Button>
+              </div>
             </div>
           </div>
         </div>

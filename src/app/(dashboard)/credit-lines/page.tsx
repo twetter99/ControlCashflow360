@@ -88,8 +88,16 @@ export default function CreditLinesPage() {
   const totalAvailable = filteredLines.reduce((sum, cl) => sum + cl.available, 0);
   const totalDrawn = filteredLines.reduce((sum, cl) => sum + cl.currentDrawn, 0);
 
-  const isExpiringSoon = (date: Date) => {
-    const daysUntilExpiry = Math.ceil((date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+  // Función helper para asegurar que tenemos un objeto Date válido
+  const toDate = (value: Date | string | undefined): Date => {
+    if (!value) return new Date();
+    if (value instanceof Date) return value;
+    return new Date(value);
+  };
+
+  const isExpiringSoon = (date: Date | string) => {
+    const dateObj = toDate(date);
+    const daysUntilExpiry = Math.ceil((dateObj.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
     return daysUntilExpiry <= 90;
   };
 
@@ -115,17 +123,39 @@ export default function CreditLinesPage() {
     
     try {
       const expiryDate = new Date(formData.expiryDate);
-      const creditLimit = parseFloat(formData.creditLimit);
-      const currentDrawn = parseFloat(formData.currentDrawn || '0');
+      const creditLimit = parseFloat(formData.creditLimit) || 0;
+      const currentDrawn = parseFloat(formData.currentDrawn || '0') || 0;
+      const interestRate = parseFloat(formData.interestRate) || 0;
+      
+      // Validaciones básicas
+      if (creditLimit <= 0) {
+        toast.error('El límite de crédito debe ser mayor a 0');
+        return;
+      }
+      
+      if (!formData.companyId) {
+        toast.error('Debe seleccionar una empresa');
+        return;
+      }
+      
+      if (!formData.bankName.trim()) {
+        toast.error('El nombre del banco es requerido');
+        return;
+      }
+      
+      if (isNaN(expiryDate.getTime())) {
+        toast.error('La fecha de vencimiento no es válida');
+        return;
+      }
       
       if (editingLine) {
         const updated = await creditLinesApi.update(editingLine, {
-          bankName: formData.bankName,
-          alias: formData.alias,
+          bankName: formData.bankName.trim(),
+          alias: formData.alias.trim(),
           companyId: formData.companyId,
           creditLimit,
           currentDrawn,
-          interestRate: parseFloat(formData.interestRate),
+          interestRate,
           expiryDate,
         });
         setCreditLines(prev => prev.map(cl => 
@@ -135,12 +165,12 @@ export default function CreditLinesPage() {
       } else {
         const newLine = await creditLinesApi.create({
           companyId: formData.companyId,
-          bankName: formData.bankName,
-          alias: formData.alias,
+          bankName: formData.bankName.trim(),
+          alias: formData.alias.trim(),
           creditLimit,
           currentDrawn,
           available: creditLimit - currentDrawn,
-          interestRate: parseFloat(formData.interestRate),
+          interestRate,
           expiryDate,
           status: 'ACTIVE',
         });
@@ -173,7 +203,7 @@ export default function CreditLinesPage() {
       creditLimit: line.creditLimit.toString(),
       currentDrawn: line.currentDrawn.toString(),
       interestRate: line.interestRate.toString(),
-      expiryDate: line.expiryDate.toISOString().split('T')[0],
+      expiryDate: toDate(line.expiryDate).toISOString().split('T')[0],
     });
     setEditingLine(line.id);
     setShowForm(true);
