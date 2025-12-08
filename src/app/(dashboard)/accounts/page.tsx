@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountsApi, companiesApi } from '@/lib/api-client';
-import { Account, Company } from '@/types';
+import { accountsApi, companiesApi, accountHoldsApi } from '@/lib/api-client';
+import { Account, Company, AccountHold } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -17,7 +17,8 @@ import {
   X,
   Star,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Lock
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 
@@ -49,6 +50,7 @@ export default function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSecondaryAccounts, setShowSecondaryAccounts] = useState(false);
   const [formData, setFormData] = useState<AccountFormData>({
@@ -66,12 +68,14 @@ export default function AccountsPage() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [accountsData, companiesData] = await Promise.all([
+        const [accountsData, companiesData, holdsData] = await Promise.all([
           accountsApi.getAll(),
-          companiesApi.getAll()
+          companiesApi.getAll(),
+          accountHoldsApi.getAll(undefined, 'ACTIVE')
         ]);
         setAccounts(accountsData);
         setCompanies(companiesData.map((c: Company) => ({ id: c.id, name: c.name })));
+        setAccountHolds(holdsData);
       } catch (error: unknown) {
         console.error('Error cargando datos:', error);
         const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
@@ -95,8 +99,24 @@ export default function AccountsPage() {
   const primaryAccounts = filteredAccounts.filter(acc => acc.isPrimary);
   const secondaryAccounts = filteredAccounts.filter(acc => !acc.isPrimary);
 
+  // Funciones para calcular retenciones
+  const getAccountHolds = (accountId: string): AccountHold[] => {
+    return accountHolds.filter(h => h.accountId === accountId);
+  };
+
+  const getTotalHoldAmount = (accountId: string): number => {
+    return getAccountHolds(accountId).reduce((sum, h) => sum + h.amount, 0);
+  };
+
+  const getAvailableBalance = (account: Account): number => {
+    const holdAmount = getTotalHoldAmount(account.id);
+    return account.currentBalance - holdAmount;
+  };
+
   // Calcular totales
   const totalBalance = filteredAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
+  const totalHolds = filteredAccounts.reduce((sum, acc) => sum + getTotalHoldAmount(acc.id), 0);
+  const totalAvailable = totalBalance - totalHolds;
 
   // Obtener nombre de empresa
   const getCompanyName = (companyId: string) => {
@@ -250,24 +270,28 @@ export default function AccountsPage() {
         <Card>
           <div className="flex items-center">
             <div className="p-3 bg-green-100 rounded-lg mr-4">
-              <Building2 className="text-green-600" size={24} />
+              <Wallet className="text-green-600" size={24} />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Saldo Total</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalBalance)}</p>
+              <p className="text-sm text-gray-500">Saldo Disponible</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(totalAvailable)}</p>
+              {totalHolds > 0 && (
+                <p className="text-xs text-amber-600 flex items-center mt-1">
+                  <Lock size={10} className="mr-1" />
+                  {formatCurrency(totalHolds)} retenido
+                </p>
+              )}
             </div>
           </div>
         </Card>
         <Card>
           <div className="flex items-center">
-            <div className="p-3 bg-amber-100 rounded-lg mr-4">
-              <AlertCircle className="text-amber-600" size={24} />
+            <div className="p-3 bg-gray-100 rounded-lg mr-4">
+              <Building2 className="text-gray-600" size={24} />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Datos Antiguos</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {filteredAccounts.filter((acc) => isStale(acc.lastUpdateDate)).length}
-              </p>
+              <p className="text-sm text-gray-500">Saldo Contable</p>
+              <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalBalance)}</p>
             </div>
           </div>
         </Card>
@@ -290,7 +314,10 @@ export default function AccountsPage() {
             </thead>
             <tbody>
               {/* Cuentas principales */}
-              {primaryAccounts.map((account) => (
+              {primaryAccounts.map((account) => {
+                const holdAmount = getTotalHoldAmount(account.id);
+                const availableBalance = getAvailableBalance(account);
+                return (
                 <tr key={account.id} className="border-b last:border-0 bg-amber-50/30">
                   <td className="py-4">
                     <button
@@ -321,9 +348,24 @@ export default function AccountsPage() {
                     <span className="text-sm text-gray-600 font-mono">{formatIbanDisplay(account.accountNumber)}</span>
                   </td>
                   <td className="py-4 text-right pr-6">
-                    <span className="font-semibold text-gray-900">
-                      {formatCurrency(account.currentBalance)}
-                    </span>
+                    {holdAmount > 0 ? (
+                      <div>
+                        <span className="font-bold text-green-600">
+                          {formatCurrency(availableBalance)}
+                        </span>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Contable: {formatCurrency(account.currentBalance)}
+                        </div>
+                        <div className="text-xs text-amber-600 flex items-center justify-end mt-0.5">
+                          <Lock size={10} className="mr-1" />
+                          {formatCurrency(holdAmount)} retenido
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="font-semibold text-gray-900">
+                        {formatCurrency(account.currentBalance)}
+                      </span>
+                    )}
                   </td>
                   <td className="py-4 pl-6">
                     <div className="flex flex-col">
@@ -357,7 +399,8 @@ export default function AccountsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
 
               {/* Separador y botón para cuentas secundarias */}
               {secondaryAccounts.length > 0 && (
@@ -384,7 +427,10 @@ export default function AccountsPage() {
               )}
 
               {/* Cuentas secundarias (colapsables) */}
-              {showSecondaryAccounts && secondaryAccounts.map((account) => (
+              {showSecondaryAccounts && secondaryAccounts.map((account) => {
+                const holdAmount = getTotalHoldAmount(account.id);
+                const availableBalance = getAvailableBalance(account);
+                return (
                 <tr key={account.id} className="border-b last:border-0">
                   <td className="py-4">
                     <button
@@ -415,9 +461,24 @@ export default function AccountsPage() {
                     <span className="text-sm text-gray-600 font-mono">{formatIbanDisplay(account.accountNumber)}</span>
                   </td>
                   <td className="py-4 text-right pr-6">
-                    <span className="font-semibold text-gray-900">
-                      {formatCurrency(account.currentBalance)}
-                    </span>
+                    {holdAmount > 0 ? (
+                      <div>
+                        <span className="font-bold text-green-600">
+                          {formatCurrency(availableBalance)}
+                        </span>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Contable: {formatCurrency(account.currentBalance)}
+                        </div>
+                        <div className="text-xs text-amber-600 flex items-center justify-end mt-0.5">
+                          <Lock size={10} className="mr-1" />
+                          {formatCurrency(holdAmount)} retenido
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="font-semibold text-gray-900">
+                        {formatCurrency(account.currentBalance)}
+                      </span>
+                    )}
                   </td>
                   <td className="py-4 pl-6">
                     <div className="flex flex-col">
@@ -451,7 +512,8 @@ export default function AccountsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
 
               {/* Mensaje si no hay cuentas */}
               {filteredAccounts.length === 0 && (
