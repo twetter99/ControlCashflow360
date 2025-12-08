@@ -29,6 +29,7 @@ function mapToCreditLine(id: string, data: FirebaseFirestore.DocumentData): Cred
     companyId: data.companyId,
     bankName: data.bankName || '',
     alias: data.alias || '',
+    lineType: data.lineType || 'CREDIT',
     creditLimit: data.creditLimit || 0,
     currentDrawn: data.currentDrawn || 0,
     available: data.available || data.creditLimit - (data.currentDrawn || 0),
@@ -121,6 +122,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (body.companyId !== undefined) updateData.companyId = body.companyId;
     if (body.bankName !== undefined) updateData.bankName = body.bankName;
     if (body.alias !== undefined) updateData.alias = body.alias;
+    if (body.lineType !== undefined) updateData.lineType = body.lineType;
     if (body.creditLimit !== undefined) updateData.creditLimit = body.creditLimit;
     if (body.currentDrawn !== undefined) updateData.currentDrawn = body.currentDrawn;
     if (body.interestRate !== undefined) updateData.interestRate = body.interestRate;

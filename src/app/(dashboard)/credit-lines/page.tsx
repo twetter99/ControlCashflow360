@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card, Input, CurrencyInput } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { creditLinesApi, companiesApi } from '@/lib/api-client';
-import { CreditLine, Company } from '@/types';
+import { CreditLine, CreditLineType, Company } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -27,8 +27,9 @@ interface CreditLineFormData {
   bankName: string;
   alias: string;
   companyId: string;
-  creditLimit: string;
-  currentDrawn: string;
+  lineType: CreditLineType;
+  creditLimit: number;
+  currentDrawn: number;
   interestRate: string;
   expiryDate: string;
 }
@@ -45,8 +46,9 @@ export default function CreditLinesPage() {
     bankName: '',
     alias: '',
     companyId: '',
-    creditLimit: '',
-    currentDrawn: '0',
+    lineType: 'CREDIT',
+    creditLimit: 0,
+    currentDrawn: 0,
     interestRate: '',
     expiryDate: '',
   });
@@ -83,10 +85,18 @@ export default function CreditLinesPage() {
     ? creditLines.filter((cl) => cl.companyId === selectedCompanyId)
     : creditLines;
 
-  // Calcular totales
-  const totalLimit = filteredLines.reduce((sum, cl) => sum + cl.creditLimit, 0);
-  const totalAvailable = filteredLines.reduce((sum, cl) => sum + cl.available, 0);
-  const totalDrawn = filteredLines.reduce((sum, cl) => sum + cl.currentDrawn, 0);
+  // Separar por tipo
+  const creditPolizas = filteredLines.filter(cl => cl.lineType !== 'DISCOUNT');
+  const discountPolizas = filteredLines.filter(cl => cl.lineType === 'DISCOUNT');
+
+  // Calcular totales (solo pólizas de crédito para el resumen principal)
+  const totalLimit = creditPolizas.reduce((sum, cl) => sum + cl.creditLimit, 0);
+  const totalAvailable = creditPolizas.reduce((sum, cl) => sum + cl.available, 0);
+  const totalDrawn = creditPolizas.reduce((sum, cl) => sum + cl.currentDrawn, 0);
+  
+  // Totales de descuento (informativo)
+  const discountLimit = discountPolizas.reduce((sum, cl) => sum + cl.creditLimit, 0);
+  const discountDrawn = discountPolizas.reduce((sum, cl) => sum + cl.currentDrawn, 0);
 
   // Función helper para asegurar que tenemos un objeto Date válido
   const toDate = (value: Date | string | undefined): Date => {
@@ -123,8 +133,8 @@ export default function CreditLinesPage() {
     
     try {
       const expiryDate = new Date(formData.expiryDate);
-      const creditLimit = parseFloat(formData.creditLimit) || 0;
-      const currentDrawn = parseFloat(formData.currentDrawn || '0') || 0;
+      const creditLimit = formData.creditLimit;
+      const currentDrawn = formData.currentDrawn;
       const interestRate = parseFloat(formData.interestRate) || 0;
       
       // Validaciones básicas
@@ -153,6 +163,7 @@ export default function CreditLinesPage() {
           bankName: formData.bankName.trim(),
           alias: formData.alias.trim(),
           companyId: formData.companyId,
+          lineType: formData.lineType,
           creditLimit,
           currentDrawn,
           interestRate,
@@ -167,6 +178,7 @@ export default function CreditLinesPage() {
           companyId: formData.companyId,
           bankName: formData.bankName.trim(),
           alias: formData.alias.trim(),
+          lineType: formData.lineType,
           creditLimit,
           currentDrawn,
           available: creditLimit - currentDrawn,
@@ -184,8 +196,9 @@ export default function CreditLinesPage() {
         bankName: '',
         alias: '',
         companyId: '',
-        creditLimit: '',
-        currentDrawn: '0',
+        lineType: 'CREDIT',
+        creditLimit: 0,
+        currentDrawn: 0,
         interestRate: '',
         expiryDate: '',
       });
@@ -200,8 +213,9 @@ export default function CreditLinesPage() {
       bankName: line.bankName,
       alias: line.alias || '',
       companyId: line.companyId,
-      creditLimit: line.creditLimit.toString(),
-      currentDrawn: line.currentDrawn.toString(),
+      lineType: line.lineType || 'CREDIT',
+      creditLimit: line.creditLimit,
+      currentDrawn: line.currentDrawn,
       interestRate: line.interestRate.toString(),
       expiryDate: toDate(line.expiryDate).toISOString().split('T')[0],
     });
@@ -238,12 +252,13 @@ export default function CreditLinesPage() {
         </Button>
       </div>
 
-      {/* Resumen */}
+      {/* Resumen - Pólizas de Crédito */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <div className="text-center">
-            <p className="text-sm text-gray-500">Límite Total</p>
+            <p className="text-sm text-gray-500">Límite Crédito</p>
             <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalLimit)}</p>
+            <p className="text-xs text-gray-400 mt-1">{creditPolizas.length} pólizas</p>
           </div>
         </Card>
         <Card>
@@ -256,17 +271,44 @@ export default function CreditLinesPage() {
           <div className="text-center">
             <p className="text-sm text-gray-500">Disponible</p>
             <p className="text-2xl font-bold text-green-600">{formatCurrency(totalAvailable)}</p>
+            <p className="text-xs text-green-600 mt-1">Suma al dashboard</p>
           </div>
         </Card>
         <Card>
           <div className="text-center">
             <p className="text-sm text-gray-500">% Utilización</p>
             <p className="text-2xl font-bold text-gray-900">
-              {((totalDrawn / totalLimit) * 100).toFixed(1)}%
+              {totalLimit > 0 ? ((totalDrawn / totalLimit) * 100).toFixed(1) : 0}%
             </p>
           </div>
         </Card>
       </div>
+
+      {/* Resumen - Pólizas de Descuento (si existen) */}
+      {discountPolizas.length > 0 && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Pólizas de Descuento</p>
+              <p className="text-xs text-gray-400">{discountPolizas.length} pólizas • No suman a liquidez</p>
+            </div>
+            <div className="flex items-center gap-6 text-right">
+              <div>
+                <p className="text-xs text-gray-500">Límite</p>
+                <p className="font-semibold text-gray-700">{formatCurrency(discountLimit)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Descontado</p>
+                <p className="font-semibold text-gray-700">{formatCurrency(discountDrawn)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Disponible</p>
+                <p className="font-semibold text-gray-500">{formatCurrency(discountLimit - discountDrawn)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lista de pólizas */}
       <Card title="Listado de Pólizas">
@@ -291,6 +333,11 @@ export default function CreditLinesPage() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
+                    {line.lineType === 'DISCOUNT' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        Descuento
+                      </span>
+                    )}
                     {isExpiringSoon(line.expiryDate) && (
                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                         <Calendar size={12} className="mr-1" />
@@ -373,8 +420,9 @@ export default function CreditLinesPage() {
                     bankName: '',
                     alias: '',
                     companyId: '',
-                    creditLimit: '',
-                    currentDrawn: '0',
+                    lineType: 'CREDIT',
+                    creditLimit: 0,
+                    currentDrawn: 0,
                     interestRate: '',
                     expiryDate: '',
                   });
@@ -412,23 +460,36 @@ export default function CreditLinesPage() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Póliza</label>
+                <select
+                  value={formData.lineType}
+                  onChange={(e) => setFormData({ ...formData, lineType: e.target.value as CreditLineType })}
+                  className="w-full border rounded-lg px-4 py-3"
+                  required
+                >
+                  <option value="CREDIT">Crédito (disponibilidad inmediata)</option>
+                  <option value="DISCOUNT">Descuento (solo pagarés/efectos)</option>
+                </select>
+                {formData.lineType === 'DISCOUNT' && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    ⚠️ Las pólizas de descuento no suman al saldo disponible del dashboard
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-4">
-                <Input
+                <CurrencyInput
                   label="Límite de Crédito"
-                  type="number"
                   value={formData.creditLimit}
-                  onChange={(e) => setFormData({ ...formData, creditLimit: e.target.value })}
-                  step="0.01"
-                  placeholder="100000.00"
+                  onChange={(value) => setFormData({ ...formData, creditLimit: value })}
+                  placeholder="100.000,00"
                   required
                 />
-                <Input
+                <CurrencyInput
                   label="Dispuesto Actual"
-                  type="number"
                   value={formData.currentDrawn}
-                  onChange={(e) => setFormData({ ...formData, currentDrawn: e.target.value })}
-                  step="0.01"
-                  placeholder="0.00"
+                  onChange={(value) => setFormData({ ...formData, currentDrawn: value })}
+                  placeholder="0,00"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -459,8 +520,9 @@ export default function CreditLinesPage() {
                       bankName: '',
                       alias: '',
                       companyId: '',
-                      creditLimit: '',
-                      currentDrawn: '0',
+                      lineType: 'CREDIT',
+                      creditLimit: 0,
+                      currentDrawn: 0,
                       interestRate: '',
                       expiryDate: '',
                     });

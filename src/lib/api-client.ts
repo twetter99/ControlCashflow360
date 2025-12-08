@@ -390,6 +390,25 @@ export const transactionsApi = {
       body: JSON.stringify({ action: 'reactivate' }),
     });
   },
+
+  /**
+   * Actualizar importe en cascada para transacciones similares
+   * Útil para transacciones recurrentes que no tienen recurrenceId
+   */
+  async cascadeUpdate(data: {
+    sourceTransactionId: string;
+    newAmount: number;
+    effectiveFromDate: Date;
+    changeReason?: string;
+  }): Promise<{ success: boolean; updatedCount: number; updatedIds: string[] }> {
+    return apiRequest('/api/transactions/cascade-update', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...data,
+        effectiveFromDate: data.effectiveFromDate.toISOString(),
+      }),
+    });
+  },
 };
 
 // ============================================
@@ -867,6 +886,47 @@ export const thirdPartiesApi = {
     return apiRequest<ThirdParty>(`/api/third-parties/${id}`, {
       method: 'PUT',
       body: JSON.stringify({ lastUsedAt: new Date() }),
+    });
+  },
+};
+
+// ============================================
+// RECURRENCE VERSIONS API
+// ============================================
+
+import { RecurrenceVersion, CreateRecurrenceVersionInput } from '@/types';
+
+export const recurrenceVersionsApi = {
+  /**
+   * Obtener todas las versiones de una recurrencia
+   */
+  async getByRecurrence(recurrenceId: string): Promise<RecurrenceVersion[]> {
+    return apiRequest<RecurrenceVersion[]>(`/api/recurrence-versions?recurrenceId=${recurrenceId}`);
+  },
+
+  /**
+   * Obtener versión por ID
+   */
+  async getById(id: string): Promise<RecurrenceVersion> {
+    return apiRequest<RecurrenceVersion>(`/api/recurrence-versions/${id}`);
+  },
+
+  /**
+   * Crear nueva versión (y opcionalmente actualizar transacciones futuras)
+   */
+  async create(data: CreateRecurrenceVersionInput & { updateFutureTransactions?: boolean }): Promise<RecurrenceVersion> {
+    return apiRequest<RecurrenceVersion>('/api/recurrence-versions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Eliminar la versión más reciente (revierte a la anterior)
+   */
+  async delete(id: string): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>(`/api/recurrence-versions/${id}`, {
+      method: 'DELETE',
     });
   },
 };

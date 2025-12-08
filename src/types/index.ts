@@ -168,12 +168,16 @@ export interface UpdateAccountHoldInput {
 // Colección: credit_lines (Pólizas de Crédito)
 // ============================================
 
+// Tipo de póliza: crédito (disponibilidad inmediata) o descuento (solo mediante pagarés)
+export type CreditLineType = 'CREDIT' | 'DISCOUNT';
+
 export interface CreditLine {
   id: string;
   userId: string;
   companyId: string;
   bankName: string;
   alias?: string;
+  lineType: CreditLineType; // Tipo de póliza
   creditLimit: number;
   currentDrawn: number;
   available: number;
@@ -295,9 +299,10 @@ export interface Transaction {
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;
   recurrenceId?: string | null;       // ID de la recurrencia padre (si aplica)
+  recurrenceVersionId?: string | null; // ID de la versión de recurrencia (para tracking de cambios)
   isRecurrenceInstance?: boolean;      // true si fue generada desde una recurrencia
   instanceDate?: string;               // Fecha única de la instancia (YYYY-MM para agrupar)
-  overriddenFromRecurrence?: boolean;  // true si el usuario modificó esta instancia
+  overriddenFromRecurrence?: boolean;  // true si el usuario modificó esta instancia manualmente
   createdBy: string;
   lastUpdatedBy?: string;
   createdAt?: Date;
@@ -354,11 +359,61 @@ export interface Recurrence {
   nextOccurrenceDate?: Date;           // Próxima fecha a generar
   // Estado
   status: RecurrenceStatus;
+  // Referencia a la versión activa actual
+  currentVersionId?: string;           // ID de la versión actual
   // Metadata
   createdBy: string;
   lastUpdatedBy?: string;
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+// ============================================
+// Colección: recurrence_versions (Versiones de Recurrencia)
+// Permite manejar cambios de importe a partir de cierta fecha
+// ============================================
+
+export interface RecurrenceVersion {
+  id: string;
+  userId: string;
+  recurrenceId: string;                // Recurrencia padre
+  // Datos de esta versión
+  amount: number;                      // Importe de esta versión
+  effectiveFrom: Date;                 // Fecha desde la cual aplica
+  effectiveTo?: Date | null;           // Fecha hasta (null = vigente/indefinida)
+  // Motivo del cambio
+  changeReason?: string;               // "Actualización IPC", "Ampliación contrato", etc.
+  // Control
+  versionNumber: number;               // 1, 2, 3... para ordenar
+  isActive: boolean;                   // true si es la versión vigente actual
+  // Metadata
+  createdBy: string;
+  createdAt?: Date;
+}
+
+// Input para crear versión de recurrencia
+export interface CreateRecurrenceVersionInput {
+  recurrenceId: string;
+  amount: number;
+  effectiveFrom: Date;
+  changeReason?: string;
+}
+
+// ============================================
+// Tipos para actualización en cascada
+// ============================================
+
+// Opciones cuando se edita una transacción recurrente
+export type RecurrenceUpdateScope = 
+  | 'THIS_ONLY'           // Solo esta transacción
+  | 'THIS_AND_FUTURE'     // Esta y todas las futuras (crea nueva versión)
+  | 'ALL_PENDING';        // Todas las pendientes (pasadas y futuras)
+
+export interface RecurrenceUpdateOptions {
+  scope: RecurrenceUpdateScope;
+  newAmount?: number;                  // Nuevo importe (si cambia)
+  effectiveFrom?: Date;                // Desde cuándo aplica
+  changeReason?: string;               // Motivo del cambio
 }
 
 // ============================================

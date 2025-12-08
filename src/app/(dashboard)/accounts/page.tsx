@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card, Input, CurrencyInput } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountsApi, companiesApi, accountHoldsApi } from '@/lib/api-client';
@@ -35,7 +35,7 @@ interface AccountFormData {
   alias: string;
   accountNumber: string;
   companyId: string;
-  currentBalance: string;
+  currentBalance: number;
 }
 
 interface CompanyOption {
@@ -58,7 +58,7 @@ export default function AccountsPage() {
     alias: '',
     accountNumber: '',
     companyId: '',
-    currentBalance: '0',
+    currentBalance: 0,
   });
 
   // Cargar datos via API
@@ -151,7 +151,7 @@ export default function AccountsPage() {
           alias: formData.alias,
           accountNumber: formData.accountNumber,
           companyId: formData.companyId,
-          currentBalance: parseFloat(formData.currentBalance),
+          currentBalance: formData.currentBalance,
         });
         setAccounts(prev => prev.map(acc => 
           acc.id === editingAccount ? updated : acc
@@ -164,7 +164,7 @@ export default function AccountsPage() {
           bankName: formData.bankName,
           alias: formData.alias,
           accountNumber: formData.accountNumber,
-          currentBalance: parseFloat(formData.currentBalance),
+          currentBalance: formData.currentBalance,
           lastUpdateAmount: 0,
           lastUpdatedBy: user.uid,
           status: 'ACTIVE',
@@ -186,7 +186,7 @@ export default function AccountsPage() {
       alias: account.alias || '',
       accountNumber: account.accountNumber,
       companyId: account.companyId,
-      currentBalance: account.currentBalance.toString(),
+      currentBalance: account.currentBalance,
     });
     setEditingAccount(account.id);
     setShowForm(true);
@@ -219,7 +219,7 @@ export default function AccountsPage() {
       alias: '',
       accountNumber: '',
       companyId: selectedCompanyId || '',
-      currentBalance: '0',
+      currentBalance: 0,
     });
     setEditingAccount(null);
     setShowForm(true);
@@ -234,7 +234,7 @@ export default function AccountsPage() {
       alias: '',
       accountNumber: '',
       companyId: '',
-      currentBalance: '0',
+      currentBalance: 0,
     });
   };
 
@@ -578,13 +578,11 @@ export default function AccountsPage() {
                   ))}
                 </select>
               </div>
-              <Input
+              <CurrencyInput
                 label="Saldo Inicial"
-                type="number"
-                step="0.01"
                 value={formData.currentBalance}
-                onChange={(e) => setFormData({ ...formData, currentBalance: e.target.value })}
-                placeholder="0.00"
+                onChange={(value) => setFormData({ ...formData, currentBalance: value })}
+                placeholder="0,00"
               />
               <div className="flex justify-end space-x-3 pt-4">
                 <Button

@@ -24,6 +24,7 @@ function mapToCreditLine(id: string, data: FirebaseFirestore.DocumentData): Cred
     companyId: data.companyId,
     bankName: data.bankName || '',
     alias: data.alias || '',
+    lineType: data.lineType || 'CREDIT', // Por defecto CREDIT para pólizas existentes
     creditLimit: data.creditLimit || 0,
     currentDrawn: data.currentDrawn || 0,
     available: data.available || data.creditLimit - (data.currentDrawn || 0),
@@ -108,6 +109,7 @@ export async function POST(request: NextRequest) {
       companyId: body.companyId,
       bankName: body.bankName,
       alias: body.alias,
+      lineType: body.lineType || 'CREDIT',
       creditLimit: body.creditLimit,
       currentDrawn: body.currentDrawn,
       available,

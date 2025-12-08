@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Input, ThirdPartyAutocomplete } from '@/components/ui';
+import { Button, Card, Input, ThirdPartyAutocomplete, CurrencyInput } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { transactionsApi, companiesApi, accountsApi } from '@/lib/api-client';
-import { Transaction, Company, Account, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer } from '@/types';
+import { transactionsApi, companiesApi, accountsApi, recurrenceVersionsApi } from '@/lib/api-client';
+import { Transaction, Company, Account, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer, RecurrenceUpdateScope } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -22,7 +22,8 @@ import {
   Target,
   FileText,
   FileCheck,
-  RotateCcw
+  RotateCcw,
+  AlertCircle
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -37,7 +38,7 @@ interface TransactionFormData {
   thirdPartyName: string;
   thirdPartyId?: string;
   category: string;
-  amount: string;
+  amount: number;
   dueDate: string;
   companyId: string;
   notes: string;
@@ -63,13 +64,24 @@ export default function TransactionsPage() {
   const [filterStatus, setFilterStatus] = useState<TransactionStatus | 'ALL'>('ALL');
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Estado para modal de opciones de edición de recurrencia
+  const [showRecurrenceOptions, setShowRecurrenceOptions] = useState(false);
+  const [pendingEditTransaction, setPendingEditTransaction] = useState<Transaction | null>(null);
+  const [recurrenceUpdateScope, setRecurrenceUpdateScope] = useState<RecurrenceUpdateScope>('THIS_ONLY');
+  const [versionChangeReason, setVersionChangeReason] = useState('');
+  
+  // Estado para selección múltiple
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
     description: '',
     thirdPartyName: '',
     thirdPartyId: undefined,
     category: '',
-    amount: '',
+    amount: 0,
     dueDate: '',
     companyId: '',
     notes: '',
@@ -180,7 +192,145 @@ export default function TransactionsPage() {
     }
   };
 
+  const handlePermanentDelete = async (transactionId: string, txDescription: string) => {
+    if (!user) return;
+    if (!confirm(`¿ELIMINAR DEFINITIVAMENTE "${txDescription}"?\n\nEsta acción NO se puede deshacer.`)) return;
+    // Doble confirmación para evitar eliminaciones accidentales
+    if (!confirm('¿Estás COMPLETAMENTE seguro? El movimiento se eliminará permanentemente.')) return;
+    try {
+      await transactionsApi.delete(transactionId);
+      setTransactions(prev => prev.filter(tx => tx.id !== transactionId));
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.delete(transactionId);
+        return next;
+      });
+      toast.success('Movimiento eliminado definitivamente');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al eliminar el movimiento');
+    }
+  };
+
+  // Funciones de selección múltiple
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredTransactions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredTransactions.map(tx => tx.id)));
+    }
+  };
+
+  const handleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (!user || selectedIds.size === 0) return;
+    
+    const count = selectedIds.size;
+    if (!confirm(`¿ELIMINAR DEFINITIVAMENTE ${count} movimiento${count > 1 ? 's' : ''}?\n\nEsta acción NO se puede deshacer.`)) return;
+    if (!confirm(`Confirma: Vas a eliminar ${count} movimiento${count > 1 ? 's' : ''} permanentemente.`)) return;
+    
+    setIsDeleting(true);
+    let deleted = 0;
+    let errors = 0;
+    
+    const idsToDelete = Array.from(selectedIds);
+    
+    try {
+      for (const id of idsToDelete) {
+        try {
+          await transactionsApi.delete(id);
+          deleted++;
+        } catch {
+          errors++;
+        }
+      }
+      
+      setTransactions(prev => prev.filter(tx => !selectedIds.has(tx.id)));
+      setSelectedIds(new Set());
+      
+      if (errors > 0) {
+        toast.success(`${deleted} eliminados, ${errors} con error`);
+      } else {
+        toast.success(`${deleted} movimiento${deleted > 1 ? 's' : ''} eliminado${deleted > 1 ? 's' : ''} definitivamente`);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al eliminar los movimientos');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCancelSelected = async () => {
+    if (!user || selectedIds.size === 0) return;
+    
+    const pendingSelected = filteredTransactions.filter(
+      tx => selectedIds.has(tx.id) && tx.status === 'PENDING'
+    );
+    
+    if (pendingSelected.length === 0) {
+      toast.error('No hay movimientos pendientes seleccionados para cancelar');
+      return;
+    }
+    
+    if (!confirm(`¿Cancelar ${pendingSelected.length} movimiento${pendingSelected.length > 1 ? 's' : ''} pendiente${pendingSelected.length > 1 ? 's' : ''}?`)) return;
+    
+    setIsDeleting(true);
+    let cancelled = 0;
+    
+    try {
+      for (const tx of pendingSelected) {
+        try {
+          const updated = await transactionsApi.cancel(tx.id);
+          setTransactions(prev => prev.map(t => t.id === tx.id ? updated : t));
+          cancelled++;
+        } catch {
+          // continuar con el siguiente
+        }
+      }
+      
+      setSelectedIds(new Set());
+      toast.success(`${cancelled} movimiento${cancelled > 1 ? 's' : ''} cancelado${cancelled > 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al cancelar los movimientos');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleEdit = (tx: Transaction) => {
+    // Determinar si es recurrente de alguna forma
+    const hasRecurrenceId = tx.recurrenceId && tx.isRecurrenceInstance;
+    const isManualRecurrence = !tx.recurrenceId && tx.recurrence && tx.recurrence !== 'NONE';
+    const isRecurrent = hasRecurrenceId || isManualRecurrence;
+    
+    // Si es una transacción recurrente y está pendiente, mostrar opciones
+    if (isRecurrent && tx.status === 'PENDING') {
+      setPendingEditTransaction(tx);
+      setRecurrenceUpdateScope('THIS_ONLY');
+      setVersionChangeReason('');
+      setShowRecurrenceOptions(true);
+      return;
+    }
+    
+    // Si no es recurrente o ya está pagada/cancelada, editar directamente
+    proceedWithEdit(tx);
+  };
+
+  // Función para proceder con la edición después de elegir scope
+  const proceedWithEdit = (tx: Transaction) => {
     // Convertir dueDate a string ISO si viene como Date o string
     const dueDateStr = tx.dueDate instanceof Date 
       ? tx.dueDate.toISOString().split('T')[0]
@@ -192,7 +342,7 @@ export default function TransactionsPage() {
       thirdPartyName: tx.thirdPartyName || '',
       thirdPartyId: tx.thirdPartyId,
       category: tx.category,
-      amount: tx.amount.toString(),
+      amount: tx.amount,
       dueDate: dueDateStr,
       companyId: tx.companyId,
       notes: tx.notes || '',
@@ -205,7 +355,15 @@ export default function TransactionsPage() {
       chargeAccountId: tx.chargeAccountId || '',
     });
     setEditingTransaction(tx.id);
+    setShowRecurrenceOptions(false);
+    setPendingEditTransaction(null);
     setShowForm(true);
+  };
+
+  // Confirmar opción de edición de recurrencia
+  const confirmRecurrenceEditOption = () => {
+    if (!pendingEditTransaction) return;
+    proceedWithEdit(pendingEditTransaction);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -214,33 +372,69 @@ export default function TransactionsPage() {
     
     try {
       if (editingTransaction) {
-        const updated = await transactionsApi.update(editingTransaction, {
-          type: formData.type,
-          description: formData.description,
-          thirdPartyName: formData.thirdPartyName,
-          thirdPartyId: formData.thirdPartyId,
-          category: formData.category,
-          amount: parseFloat(formData.amount),
-          dueDate: new Date(formData.dueDate),
-          companyId: formData.companyId,
-          notes: formData.notes,
-          invoiceNumber: formData.type === 'INCOME' ? formData.invoiceNumber : '',
-          recurrence: formData.recurrence,
-          certainty: formData.certainty,
-          supplierInvoiceNumber: formData.type === 'EXPENSE' ? formData.supplierInvoiceNumber : '',
-          supplierBankAccount: formData.type === 'EXPENSE' && formData.paymentMethod === 'TRANSFER' ? formData.supplierBankAccount : '',
-          paymentMethod: formData.type === 'EXPENSE' ? formData.paymentMethod : undefined,
-          chargeAccountId: formData.type === 'EXPENSE' ? formData.chargeAccountId : undefined,
-        });
-        setTransactions(prev => prev.map(tx => 
-          tx.id === editingTransaction ? updated : tx
-        ));
-        toast.success('Movimiento actualizado correctamente');
+        // Buscar la transacción original para ver si es recurrente
+        const originalTx = transactions.find(t => t.id === editingTransaction);
+        
+        // Determinar si es una actualización en cascada y cambió el importe
+        const wantsCascade = recurrenceUpdateScope === 'THIS_AND_FUTURE' && 
+          originalTx && originalTx.amount !== formData.amount;
+
+        if (wantsCascade) {
+          // Usar cascade-update para actualizar transacciones similares
+          // Esto funciona tanto para transacciones con recurrenceId como sin él
+          try {
+            const result = await transactionsApi.cascadeUpdate({
+              sourceTransactionId: editingTransaction,
+              newAmount: formData.amount,
+              effectiveFromDate: new Date(formData.dueDate),
+              changeReason: versionChangeReason || 'Actualización de importe',
+            });
+            
+            const updatedTransactions = await transactionsApi.getAll();
+            setTransactions(updatedTransactions);
+            toast.success(`Importe actualizado en ${result.updatedCount} transacciones`);
+          } catch (error) {
+            console.error('Error en cascade update:', error);
+            toast.error('Error al actualizar las transacciones futuras');
+            return;
+          }
+        } else {
+          // Actualización normal (solo esta transacción)
+          const updateData: Parameters<typeof transactionsApi.update>[1] = {
+            type: formData.type,
+            description: formData.description,
+            thirdPartyName: formData.thirdPartyName,
+            thirdPartyId: formData.thirdPartyId,
+            category: formData.category,
+            amount: formData.amount,
+            dueDate: new Date(formData.dueDate),
+            companyId: formData.companyId,
+            notes: formData.notes,
+            invoiceNumber: formData.type === 'INCOME' ? formData.invoiceNumber : '',
+            recurrence: formData.recurrence,
+            certainty: formData.certainty,
+            supplierInvoiceNumber: formData.type === 'EXPENSE' ? formData.supplierInvoiceNumber : '',
+            supplierBankAccount: formData.type === 'EXPENSE' && formData.paymentMethod === 'TRANSFER' ? formData.supplierBankAccount : '',
+            paymentMethod: formData.type === 'EXPENSE' ? formData.paymentMethod : undefined,
+            chargeAccountId: formData.type === 'EXPENSE' ? formData.chargeAccountId : undefined,
+          };
+          
+          // Si es solo esta transacción y es recurrente, marcar como modificada manualmente
+          if (originalTx?.recurrenceId && recurrenceUpdateScope === 'THIS_ONLY') {
+            updateData.overriddenFromRecurrence = true;
+          }
+          
+          const updated = await transactionsApi.update(editingTransaction, updateData);
+          setTransactions(prev => prev.map(tx => 
+            tx.id === editingTransaction ? updated : tx
+          ));
+          toast.success('Movimiento actualizado correctamente');
+        }
       } else {
         const newTx = await transactionsApi.create({
           companyId: formData.companyId,
           type: formData.type,
-          amount: parseFloat(formData.amount),
+          amount: formData.amount,
           status: 'PENDING',
           dueDate: new Date(formData.dueDate),
           category: formData.category,
@@ -263,13 +457,15 @@ export default function TransactionsPage() {
       
       setShowForm(false);
       setEditingTransaction(null);
+      setRecurrenceUpdateScope('THIS_ONLY');
+      setVersionChangeReason('');
       setFormData({
         type: 'EXPENSE',
         description: '',
         thirdPartyName: '',
         thirdPartyId: undefined,
         category: '',
-        amount: '',
+        amount: 0,
         dueDate: '',
         companyId: '',
         notes: '',
@@ -441,10 +637,53 @@ export default function TransactionsPage() {
 
       {/* Lista de transacciones */}
       <Card title={`Transacciones (${filteredTransactions.length})`}>
+        {/* Barra de acciones en grupo */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-primary-700 font-medium">
+                {selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}
+              </span>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-sm text-primary-600 hover:text-primary-800 underline"
+              >
+                Deseleccionar todo
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCancelSelected}
+                disabled={isDeleting}
+                className="px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1"
+              >
+                <X size={14} />
+                Cancelar seleccionados
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={isDeleting}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1"
+              >
+                <Trash2 size={14} />
+                {isDeleting ? 'Eliminando...' : 'Eliminar definitivamente'}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="text-left text-sm text-gray-500 border-b">
+                <th className="pb-3 font-medium w-10">
+                  <input
+                    type="checkbox"
+                    checked={filteredTransactions.length > 0 && selectedIds.size === filteredTransactions.length}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                    title="Seleccionar todos"
+                  />
+                </th>
                 <th className="pb-3 font-medium">Descripción</th>
                 <th className="pb-3 font-medium">Tipo</th>
                 <th className="pb-3 font-medium">Categoría</th>
@@ -456,12 +695,34 @@ export default function TransactionsPage() {
             </thead>
             <tbody>
               {filteredTransactions.map((tx) => (
-                <tr key={tx.id} className="border-b last:border-0">
+                <tr 
+                  key={tx.id} 
+                  className={`border-b last:border-0 transition-colors ${
+                    selectedIds.has(tx.id) ? 'bg-primary-50' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <td className="py-4 pl-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(tx.id)}
+                      onChange={() => handleSelectOne(tx.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                    />
+                  </td>
                   <td className="py-4">
                     <div className="flex items-start gap-2">
                       <div className="flex-1">
                         <p className="font-medium text-gray-900">{tx.description}</p>
                         <p className="text-sm text-gray-500">{tx.thirdPartyName}</p>
+                        {/* Indicador de recurrencia */}
+                        {tx.recurrenceId && tx.isRecurrenceInstance && (
+                          <p className={`text-xs mt-0.5 flex items-center gap-1 ${
+                            tx.overriddenFromRecurrence ? 'text-amber-600' : 'text-purple-600'
+                          }`}>
+                            <Repeat size={10} />
+                            {tx.overriddenFromRecurrence ? 'Modificada' : 'Recurrente'}
+                          </p>
+                        )}
                         {tx.invoiceNumber && (
                           <p className="text-xs text-green-600 mt-0.5">
                             <FileText size={10} className="inline mr-1" />
@@ -562,6 +823,15 @@ export default function TransactionsPage() {
                           <RotateCcw size={16} />
                         </button>
                       )}
+                      {tx.status === 'CANCELLED' && (
+                        <button
+                          onClick={() => handlePermanentDelete(tx.id, tx.description || tx.thirdPartyName || 'Sin descripción')}
+                          className="p-2 text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+                          title="Eliminar definitivamente"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -590,7 +860,7 @@ export default function TransactionsPage() {
                     thirdPartyName: '',
                     thirdPartyId: undefined,
                     category: '',
-                    amount: '',
+                    amount: 0,
                     dueDate: '',
                     companyId: '',
                     notes: '',
@@ -671,13 +941,11 @@ export default function TransactionsPage() {
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <Input
+                <CurrencyInput
                   label="Importe"
-                  type="number"
                   value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  step="0.01"
-                  placeholder="0.00"
+                  onChange={(value) => setFormData({ ...formData, amount: value })}
+                  placeholder="0,00"
                   required
                 />
                 <Input
@@ -868,7 +1136,7 @@ export default function TransactionsPage() {
                       thirdPartyName: '',
                       thirdPartyId: undefined,
                       category: '',
-                      amount: '',
+                      amount: 0,
                       dueDate: '',
                       companyId: '',
                       notes: '',
@@ -893,6 +1161,102 @@ export default function TransactionsPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de opciones de edición de recurrencia */}
+      {showRecurrenceOptions && pendingEditTransaction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="text-amber-500" size={24} />
+                <h2 className="text-lg font-semibold text-gray-900">Editar Transacción Recurrente</h2>
+              </div>
+              <button
+                onClick={() => {
+                  setShowRecurrenceOptions(false);
+                  setPendingEditTransaction(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                Esta transacción es parte de una serie recurrente. ¿Cómo deseas aplicar los cambios?
+              </p>
+              
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="recurrenceScope"
+                    value="THIS_ONLY"
+                    checked={recurrenceUpdateScope === 'THIS_ONLY'}
+                    onChange={() => setRecurrenceUpdateScope('THIS_ONLY')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">Solo esta transacción</span>
+                    <p className="text-sm text-gray-500">
+                      Los cambios solo afectarán a este movimiento específico
+                    </p>
+                  </div>
+                </label>
+                
+                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="recurrenceScope"
+                    value="THIS_AND_FUTURE"
+                    checked={recurrenceUpdateScope === 'THIS_AND_FUTURE'}
+                    onChange={() => setRecurrenceUpdateScope('THIS_AND_FUTURE')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">Esta y todas las futuras</span>
+                    <p className="text-sm text-gray-500">
+                      Crea una nueva versión del contrato/recurrencia a partir de esta fecha
+                    </p>
+                  </div>
+                </label>
+              </div>
+              
+              {recurrenceUpdateScope === 'THIS_AND_FUTURE' && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Motivo del cambio (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={versionChangeReason}
+                    onChange={(e) => setVersionChangeReason(e.target.value)}
+                    placeholder="Ej: Actualización IPC, Ampliación contrato..."
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowRecurrenceOptions(false);
+                  setPendingEditTransaction(null);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={confirmRecurrenceEditOption}>
+                Continuar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Toaster position="top-right" />
     </div>
   );

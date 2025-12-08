@@ -204,6 +204,9 @@ export const TransactionActionSchema = z.object({
 // CREDIT LINE SCHEMAS
 // ============================================
 
+// Tipo de póliza
+export const CreditLineTypeSchema = z.enum(['CREDIT', 'DISCOUNT']);
+
 export const CreateCreditLineSchema = z.object({
   companyId: z.string()
     .min(1, 'El ID de empresa es requerido'),
@@ -214,6 +217,7 @@ export const CreateCreditLineSchema = z.object({
     .pipe(z.string().max(50, 'El alias no puede exceder 50 caracteres'))
     .optional()
     .default(''),
+  lineType: CreditLineTypeSchema.default('CREDIT'),
   creditLimit: z.number()
     .positive('El límite de crédito debe ser mayor a 0')
     .finite('El límite debe ser un número válido'),
@@ -256,6 +260,7 @@ export const UpdateCreditLineSchema = z.object({
   accountId: z.string().min(1).optional().nullable(),
   bankName: sanitizedString(100).pipe(z.string().min(1).max(100)).optional(),
   alias: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  lineType: CreditLineTypeSchema.optional(),
   creditLimit: z.number().positive().finite().optional(),
   currentDrawn: z.number().min(0).finite().optional(),
   interestRate: z.number().min(0).max(100).finite().optional(),

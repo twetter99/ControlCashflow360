@@ -240,6 +240,9 @@ export default function DashboardPage() {
     ? creditLines.filter(cl => cl.companyId === selectedCompanyId)
     : creditLines;
   
+  // Solo pólizas de CRÉDITO suman a la liquidez (no las de DESCUENTO)
+  const creditLinesForLiquidity = filteredCreditLines.filter(cl => cl.lineType !== 'DISCOUNT');
+  
   const filteredTransactions = selectedCompanyId
     ? transactions.filter(tx => tx.companyId === selectedCompanyId)
     : transactions;
@@ -248,7 +251,7 @@ export default function DashboardPage() {
   // CAPA 1: SITUACIÓN REAL (BANCOS)
   // ==========================================
   const totalBankBalance = filteredAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
-  const totalCreditAvailable = filteredCreditLines.reduce((sum, cl) => sum + cl.available, 0);
+  const totalCreditAvailable = creditLinesForLiquidity.reduce((sum, cl) => sum + cl.available, 0);
   
   // Calcular retenciones activas
   const filteredHolds = selectedCompanyId
@@ -620,7 +623,12 @@ export default function DashboardPage() {
           <div>
             <p className="text-blue-200 text-sm">Pólizas Disponibles</p>
             <p className="text-3xl font-bold">{formatCurrency(totalCreditAvailable)}</p>
-            <p className="text-blue-200 text-xs mt-1">{filteredCreditLines.length} líneas de crédito</p>
+            <p className="text-blue-200 text-xs mt-1">
+              {creditLinesForLiquidity.length} pólizas de crédito
+              {filteredCreditLines.length > creditLinesForLiquidity.length && (
+                <span className="text-blue-300"> (+{filteredCreditLines.length - creditLinesForLiquidity.length} descuento)</span>
+              )}
+            </p>
           </div>
           <div>
             <p className="text-blue-200 text-sm">Liquidez Total</p>

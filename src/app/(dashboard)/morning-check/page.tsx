@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button, Card } from '@/components/ui';
+import { Button, Card, CurrencyInput } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountsApi, creditLinesApi, creditCardsApi, companiesApi, accountHoldsApi } from '@/lib/api-client';
@@ -21,7 +21,8 @@ import {
   Lock,
   Plus,
   X,
-  Calendar
+  Calendar,
+  Edit2
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 
@@ -68,9 +69,10 @@ export default function MorningCheckPage() {
   // Estado para modal de retenciones
   const [holdModalOpen, setHoldModalOpen] = useState(false);
   const [selectedAccountForHold, setSelectedAccountForHold] = useState<Account | null>(null);
+  const [editingHoldId, setEditingHoldId] = useState<string | null>(null);
   const [holdForm, setHoldForm] = useState({
     concept: '',
-    amount: '',
+    amount: 0,
     startDate: new Date().toISOString().split('T')[0],
     endDate: '',
     type: 'PARTIAL' as AccountHoldType,
@@ -191,42 +193,81 @@ export default function MorningCheckPage() {
     setSelectedAccountForHold(account);
     setHoldForm({
       concept: '',
-      amount: '',
+      amount: 0,
       startDate: new Date().toISOString().split('T')[0],
       endDate: '',
       type: 'PARTIAL',
       reference: '',
       notes: '',
     });
+    setEditingHoldId(null);
     setHoldModalOpen(true);
   };
 
-  // Guardar nueva retención
+  // Abrir modal para editar retención existente
+  const handleEditHold = (hold: AccountHold) => {
+    const account = accounts.find(a => a.id === hold.accountId);
+    if (!account) return;
+    
+    setSelectedAccountForHold(account);
+    setEditingHoldId(hold.id);
+    setHoldForm({
+      concept: hold.concept,
+      amount: hold.amount,
+      startDate: hold.startDate ? new Date(hold.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      endDate: hold.endDate ? new Date(hold.endDate).toISOString().split('T')[0] : '',
+      type: hold.type,
+      reference: hold.reference || '',
+      notes: hold.notes || '',
+    });
+    setHoldModalOpen(true);
+  };
+
+  // Guardar retención (crear o actualizar)
   const handleSaveHold = async () => {
     if (!selectedAccountForHold) return;
     
-    if (!holdForm.concept || !holdForm.amount || parseFloat(holdForm.amount) <= 0) {
+    if (!holdForm.concept || holdForm.amount <= 0) {
       toast.error('Completa el concepto y el importe');
       return;
     }
 
     setIsSavingHold(true);
     try {
-      const newHold = await accountHoldsApi.create({
-        accountId: selectedAccountForHold.id,
-        companyId: selectedAccountForHold.companyId,
-        concept: holdForm.concept,
-        amount: parseFloat(holdForm.amount),
-        startDate: new Date(holdForm.startDate),
-        endDate: holdForm.endDate ? new Date(holdForm.endDate) : null,
-        type: holdForm.type,
-        reference: holdForm.reference || undefined,
-        notes: holdForm.notes || undefined,
-      });
+      if (editingHoldId) {
+        // Actualizar retención existente
+        const updatedHold = await accountHoldsApi.update(editingHoldId, {
+          concept: holdForm.concept,
+          amount: holdForm.amount,
+          startDate: new Date(holdForm.startDate),
+          endDate: holdForm.endDate ? new Date(holdForm.endDate) : null,
+          type: holdForm.type,
+          reference: holdForm.reference || undefined,
+          notes: holdForm.notes || undefined,
+        });
+        
+        setAccountHolds(prev => prev.map(h => h.id === editingHoldId ? updatedHold : h));
+        toast.success('Retención actualizada correctamente');
+      } else {
+        // Crear nueva retención
+        const newHold = await accountHoldsApi.create({
+          accountId: selectedAccountForHold.id,
+          companyId: selectedAccountForHold.companyId,
+          concept: holdForm.concept,
+          amount: holdForm.amount,
+          startDate: new Date(holdForm.startDate),
+          endDate: holdForm.endDate ? new Date(holdForm.endDate) : null,
+          type: holdForm.type,
+          reference: holdForm.reference || undefined,
+          notes: holdForm.notes || undefined,
+        });
+        
+        setAccountHolds(prev => [...prev, newHold]);
+        toast.success('Retención registrada correctamente');
+      }
       
-      setAccountHolds(prev => [...prev, newHold]);
       setHoldModalOpen(false);
-      toast.success('Retención registrada correctamente');
+      setEditingHoldId(null);
     } catch (error) {
       console.error('Error guardando retención:', error);
       toast.error('Error al guardar la retención');
@@ -655,8 +696,15 @@ export default function MorningCheckPage() {
                                       {getDaysRemaining(hold.endDate)}
                                     </span>
                                     <button
+                                      onClick={() => handleEditHold(hold)}
+                                      className="ml-2 text-gray-400 hover:text-blue-600"
+                                      title="Editar retención"
+                                    >
+                                      <Edit2 size={14} />
+                                    </button>
+                                    <button
                                       onClick={() => handleReleaseHold(hold.id)}
-                                      className="ml-2 text-gray-400 hover:text-green-600"
+                                      className="text-gray-400 hover:text-green-600"
                                       title="Liberar retención"
                                     >
                                       <X size={14} />
@@ -889,16 +937,19 @@ export default function MorningCheckPage() {
         </Button>
       </div>
 
-      {/* Modal para añadir retención */}
+      {/* Modal para añadir/editar retención */}
       {holdModalOpen && selectedAccountForHold && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">
-                Añadir Retención
+                {editingHoldId ? 'Editar Retención' : 'Añadir Retención'}
               </h3>
               <button
-                onClick={() => setHoldModalOpen(false)}
+                onClick={() => {
+                  setHoldModalOpen(false);
+                  setEditingHoldId(null);
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X size={20} />
@@ -929,16 +980,12 @@ export default function MorningCheckPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Importe retenido *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
+                <CurrencyInput
+                  label="Importe retenido *"
                   value={holdForm.amount}
-                  onChange={(e) => setHoldForm(prev => ({ ...prev, amount: e.target.value }))}
-                  placeholder="0.00"
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                  onChange={(value) => setHoldForm(prev => ({ ...prev, amount: value }))}
+                  placeholder="0,00"
+                  required
                 />
               </div>
 
@@ -1011,7 +1058,10 @@ export default function MorningCheckPage() {
               <div className="flex justify-end gap-3 pt-4 border-t mt-4">
                 <Button
                   variant="outline"
-                  onClick={() => setHoldModalOpen(false)}
+                  onClick={() => {
+                    setHoldModalOpen(false);
+                    setEditingHoldId(null);
+                  }}
                 >
                   Cancelar
                 </Button>
@@ -1020,7 +1070,7 @@ export default function MorningCheckPage() {
                   isLoading={isSavingHold}
                 >
                   <Lock size={16} className="mr-2" />
-                  Registrar Retención
+                  {editingHoldId ? 'Guardar Cambios' : 'Registrar Retención'}
                 </Button>
               </div>
             </div>

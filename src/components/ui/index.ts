@@ -11,3 +11,6 @@ export { Select } from './Select';
 export type { SelectOption } from './Select';
 
 export { default as ThirdPartyAutocomplete } from './ThirdPartyAutocomplete';
+
+export { CurrencyInput } from './CurrencyInput';
+export type { CurrencyInputProps } from './CurrencyInput';
