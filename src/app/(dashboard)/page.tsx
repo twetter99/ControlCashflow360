@@ -668,67 +668,65 @@ export default function DashboardPage() {
       </div>
 
       {/* ==========================================
-          TARJETAS DE CRÉDITO
+          TARJETAS DE CRÉDITO (Sección compacta)
           ========================================== */}
       {filteredCreditCards.length > 0 && (
-        <div className="bg-gradient-to-r from-purple-600 to-purple-800 rounded-xl p-6 text-white">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-gradient-to-r from-purple-600 to-purple-800 rounded-xl p-4 text-white">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <CreditCardIcon size={24} className="mr-2" />
-              <h2 className="text-lg font-semibold">Tarjetas de Crédito</h2>
+              <CreditCardIcon size={20} className="mr-2" />
+              <h2 className="text-base font-semibold">Tarjetas de Crédito</h2>
             </div>
             <Link 
               href="/credit-cards"
-              className="text-sm text-purple-200 hover:text-white flex items-center gap-1"
+              className="text-xs text-purple-200 hover:text-white flex items-center gap-1"
             >
-              Gestionar <ExternalLink size={14} />
+              Gestionar <ExternalLink size={12} />
             </Link>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-purple-200 text-sm">Tarjetas Activas</p>
-              <p className="text-3xl font-bold">{filteredCreditCards.length}</p>
-              <p className="text-purple-200 text-xs mt-1">
-                Límite total: {formatCurrency(totalCardLimit)}
+              <p className="text-purple-200 text-xs">Tarjetas Activas</p>
+              <p className="text-xl font-bold">{filteredCreditCards.length}</p>
+              <p className="text-purple-300 text-xs">
+                Límite: {formatCurrency(totalCardLimit)}
               </p>
             </div>
             <div>
-              <p className="text-red-300 text-sm">💳 Deuda Tarjetas</p>
-              <p className="text-3xl font-bold text-red-300">{formatCurrency(totalCardDebt)}</p>
-              <p className="text-red-200 text-xs mt-1">Pago pendiente a realizar</p>
+              <p className="text-red-300 text-xs">💳 Deuda Tarjetas</p>
+              <p className="text-xl font-bold text-red-300">{formatCurrency(totalCardDebt)}</p>
+              <p className="text-red-200 text-xs">Pago pendiente</p>
             </div>
             <div>
-              <p className="text-green-300 text-sm">Disponible Tarjetas</p>
-              <p className="text-3xl font-bold text-green-300">{formatCurrency(totalCardAvailable)}</p>
-              <p className="text-green-200 text-xs mt-1">Crédito disponible si lo necesitas</p>
+              <p className="text-green-300 text-xs">Disponible Tarjetas</p>
+              <p className="text-xl font-bold text-green-300">{formatCurrency(totalCardAvailable)}</p>
+              <p className="text-green-200 text-xs">Crédito disponible</p>
             </div>
             <div>
-              <p className="text-purple-200 text-sm">Liquidez de Emergencia</p>
-              <p className="text-3xl font-bold">{formatCurrency(emergencyLiquidity)}</p>
-              <p className="text-purple-200 text-xs mt-1">Pólizas + Tarjetas disponibles</p>
+              <p className="text-purple-200 text-xs">Liquidez Emergencia</p>
+              <p className="text-xl font-bold">{formatCurrency(emergencyLiquidity)}</p>
+              <p className="text-purple-300 text-xs">Pólizas + Tarjetas</p>
             </div>
           </div>
-          {/* Indicador de uso de tarjetas */}
+          {/* Indicador compacto de uso */}
           {totalCardLimit > 0 && (
-            <div className="mt-4 pt-4 border-t border-purple-500">
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span className="text-purple-200">Uso del crédito</span>
-                <span className={`font-medium ${
-                  (totalCardDebt / totalCardLimit) > 0.8 ? 'text-red-300' :
-                  (totalCardDebt / totalCardLimit) > 0.5 ? 'text-yellow-300' : 'text-green-300'
-                }`}>
-                  {((totalCardDebt / totalCardLimit) * 100).toFixed(0)}%
-                </span>
-              </div>
-              <div className="w-full bg-purple-900 rounded-full h-2">
+            <div className="mt-3 flex items-center gap-3">
+              <span className="text-purple-200 text-xs">Uso:</span>
+              <div className="flex-1 bg-purple-900 rounded-full h-1.5">
                 <div 
-                  className={`h-2 rounded-full transition-all ${
+                  className={`h-1.5 rounded-full transition-all ${
                     (totalCardDebt / totalCardLimit) > 0.8 ? 'bg-red-400' :
                     (totalCardDebt / totalCardLimit) > 0.5 ? 'bg-yellow-400' : 'bg-green-400'
                   }`}
                   style={{ width: `${Math.min((totalCardDebt / totalCardLimit) * 100, 100)}%` }}
                 />
               </div>
+              <span className={`text-xs font-medium ${
+                (totalCardDebt / totalCardLimit) > 0.8 ? 'text-red-300' :
+                (totalCardDebt / totalCardLimit) > 0.5 ? 'text-yellow-300' : 'text-green-300'
+              }`}>
+                {((totalCardDebt / totalCardLimit) * 100).toFixed(0)}%
+              </span>
             </div>
           )}
         </div>
