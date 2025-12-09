@@ -4,8 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi } from '@/lib/api-client';
-import { Account, CreditLine, Transaction, IncomeLayer, AccountHold } from '@/types';
+import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi, creditCardsApi } from '@/lib/api-client';
+import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard } from '@/types';
+import { CreditCard as CreditCardIcon } from 'lucide-react';
 import { 
   Wallet, 
   TrendingUp, 
@@ -88,6 +89,7 @@ export default function DashboardPage() {
   // Datos reales de Firebase
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [creditLines, setCreditLines] = useState<CreditLine[]>([]);
+  const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
   
@@ -151,14 +153,16 @@ export default function DashboardPage() {
         }
         
         // Luego cargar todos los datos
-        const [accountsData, creditLinesData, transactionsData, holdsData] = await Promise.all([
+        const [accountsData, creditLinesData, creditCardsData, transactionsData, holdsData] = await Promise.all([
           accountsApi.getAll(),
           creditLinesApi.getAll(),
+          creditCardsApi.getAll(),
           transactionsApi.getAll(),
           accountHoldsApi.getAll(undefined, 'ACTIVE')
         ]);
         setAccounts(accountsData);
         setCreditLines(creditLinesData);
+        setCreditCards(creditCardsData);
         setTransactions(transactionsData);
         setAccountHolds(holdsData);
       } catch (error) {
@@ -246,12 +250,22 @@ export default function DashboardPage() {
   const filteredTransactions = selectedCompanyId
     ? transactions.filter(tx => tx.companyId === selectedCompanyId)
     : transactions;
+  
+  // Filtrar tarjetas de crédito
+  const filteredCreditCards = selectedCompanyId
+    ? creditCards.filter(cc => cc.companyId === selectedCompanyId && cc.status === 'ACTIVE')
+    : creditCards.filter(cc => cc.status === 'ACTIVE');
 
   // ==========================================
   // CAPA 1: SITUACIÓN REAL (BANCOS)
   // ==========================================
   const totalBankBalance = filteredAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
   const totalCreditAvailable = creditLinesForLiquidity.reduce((sum, cl) => sum + cl.available, 0);
+  
+  // Tarjetas de crédito
+  const totalCardDebt = filteredCreditCards.reduce((sum, cc) => sum + (cc.currentBalance || 0), 0);
+  const totalCardAvailable = filteredCreditCards.reduce((sum, cc) => sum + (cc.availableCredit || 0), 0);
+  const totalCardLimit = filteredCreditCards.reduce((sum, cc) => sum + (cc.creditLimit || 0), 0);
   
   // Calcular retenciones activas
   const filteredHolds = selectedCompanyId
@@ -260,7 +274,11 @@ export default function DashboardPage() {
   const totalHoldsAmount = filteredHolds.reduce((sum, h) => sum + h.amount, 0);
   const totalAvailableBalance = totalBankBalance - totalHoldsAmount;
   
-  const totalLiquidity = totalAvailableBalance + totalCreditAvailable;
+  // Liquidez total (bancos + pólizas + disponible tarjetas)
+  const totalLiquidity = totalAvailableBalance + totalCreditAvailable + totalCardAvailable;
+  
+  // Liquidez de emergencia (solo pólizas + tarjetas disponibles)
+  const emergencyLiquidity = totalCreditAvailable + totalCardAvailable;
 
   // ==========================================
   // CAPA 2: PREVISIONES (MOVIMIENTOS)
@@ -634,7 +652,9 @@ export default function DashboardPage() {
             <p className="text-blue-200 text-sm">Liquidez Total</p>
             <p className="text-3xl font-bold">{formatCurrency(totalLiquidity)}</p>
             <p className="text-blue-200 text-xs mt-1">
-              {totalHoldsAmount > 0 ? 'Disponible + Crédito' : 'Bancos + Crédito'}
+              {filteredCreditCards.length > 0 
+                ? 'Bancos + Pólizas + Tarjetas' 
+                : totalHoldsAmount > 0 ? 'Disponible + Crédito' : 'Bancos + Crédito'}
             </p>
           </div>
           <div>
@@ -646,6 +666,73 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ==========================================
+          TARJETAS DE CRÉDITO
+          ========================================== */}
+      {filteredCreditCards.length > 0 && (
+        <div className="bg-gradient-to-r from-purple-600 to-purple-800 rounded-xl p-6 text-white">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center">
+              <CreditCardIcon size={24} className="mr-2" />
+              <h2 className="text-lg font-semibold">Tarjetas de Crédito</h2>
+            </div>
+            <Link 
+              href="/credit-cards"
+              className="text-sm text-purple-200 hover:text-white flex items-center gap-1"
+            >
+              Gestionar <ExternalLink size={14} />
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div>
+              <p className="text-purple-200 text-sm">Tarjetas Activas</p>
+              <p className="text-3xl font-bold">{filteredCreditCards.length}</p>
+              <p className="text-purple-200 text-xs mt-1">
+                Límite total: {formatCurrency(totalCardLimit)}
+              </p>
+            </div>
+            <div>
+              <p className="text-red-300 text-sm">💳 Deuda Tarjetas</p>
+              <p className="text-3xl font-bold text-red-300">{formatCurrency(totalCardDebt)}</p>
+              <p className="text-red-200 text-xs mt-1">Pago pendiente a realizar</p>
+            </div>
+            <div>
+              <p className="text-green-300 text-sm">Disponible Tarjetas</p>
+              <p className="text-3xl font-bold text-green-300">{formatCurrency(totalCardAvailable)}</p>
+              <p className="text-green-200 text-xs mt-1">Crédito disponible si lo necesitas</p>
+            </div>
+            <div>
+              <p className="text-purple-200 text-sm">Liquidez de Emergencia</p>
+              <p className="text-3xl font-bold">{formatCurrency(emergencyLiquidity)}</p>
+              <p className="text-purple-200 text-xs mt-1">Pólizas + Tarjetas disponibles</p>
+            </div>
+          </div>
+          {/* Indicador de uso de tarjetas */}
+          {totalCardLimit > 0 && (
+            <div className="mt-4 pt-4 border-t border-purple-500">
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-purple-200">Uso del crédito</span>
+                <span className={`font-medium ${
+                  (totalCardDebt / totalCardLimit) > 0.8 ? 'text-red-300' :
+                  (totalCardDebt / totalCardLimit) > 0.5 ? 'text-yellow-300' : 'text-green-300'
+                }`}>
+                  {((totalCardDebt / totalCardLimit) * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div className="w-full bg-purple-900 rounded-full h-2">
+                <div 
+                  className={`h-2 rounded-full transition-all ${
+                    (totalCardDebt / totalCardLimit) > 0.8 ? 'bg-red-400' :
+                    (totalCardDebt / totalCardLimit) > 0.5 ? 'bg-yellow-400' : 'bg-green-400'
+                  }`}
+                  style={{ width: `${Math.min((totalCardDebt / totalCardLimit) * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ==========================================
           CAPA 2: PREVISIONES
