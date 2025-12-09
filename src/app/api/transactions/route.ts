@@ -147,19 +147,22 @@ export async function POST(request: NextRequest) {
     
     // Verificar duplicados: misma empresa, tipo, monto, descripción y fecha
     // Esto previene doble-clics, múltiples pestañas, etc.
-    const duplicateCheck = await db.collection(COLLECTION)
+    // Usamos consulta simple sin índice compuesto y filtramos en memoria
+    const recentTransactions = await db.collection(COLLECTION)
       .where('userId', '==', userId)
-      .where('companyId', '==', body.companyId)
-      .where('type', '==', body.type)
-      .where('amount', '==', body.amount)
-      .where('dueDate', '>=', Timestamp.fromDate(dueDateStart))
-      .where('dueDate', '<=', Timestamp.fromDate(dueDateEnd))
       .get();
     
-    // Si hay transacciones con la misma descripción, es un duplicado
-    const exactDuplicate = duplicateCheck.docs.find(doc => 
-      doc.data().description === body.description
-    );
+    // Filtrar en memoria para encontrar duplicados exactos
+    const exactDuplicate = recentTransactions.docs.find(doc => {
+      const data = doc.data();
+      const docDueDate = data.dueDate?.toDate?.() || new Date(0);
+      return data.companyId === body.companyId &&
+             data.type === body.type &&
+             data.amount === body.amount &&
+             data.description === body.description &&
+             docDueDate >= dueDateStart &&
+             docDueDate <= dueDateEnd;
+    });
     
     if (exactDuplicate) {
       console.log(`[Transactions API] Detectado duplicado, devolviendo transacción existente: ${exactDuplicate.id}`);
