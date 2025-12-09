@@ -212,6 +212,8 @@ export async function generateTransactionsFromRecurrence(
   // El sistema de skipExisting evitará duplicados
   const startFrom = new Date(recurrence.startDate);
   
+  console.log(`[RecurrenceGenerator] Generando fechas desde ${startFrom.toISOString()} hasta ${maxDate.toISOString()}`);
+  
   // Generar fechas de ocurrencia
   const dates = generateOccurrenceDates(
     startFrom,
@@ -221,6 +223,8 @@ export async function generateTransactionsFromRecurrence(
     recurrence.dayOfWeek,
     maxDate
   );
+  
+  console.log(`[RecurrenceGenerator] Fechas generadas: ${dates.map(d => d.toISOString().split('T')[0]).join(', ')}`);
   
   if (dates.length === 0) {
     return result;
@@ -237,17 +241,21 @@ export async function generateTransactionsFromRecurrence(
     existingSnapshot.docs.forEach(doc => {
       const data = doc.data();
       const dueDate = data.dueDate?.toDate?.() || new Date(data.dueDate);
-      // Usar YYYY-MM-DD como clave para evitar duplicados
-      existingDates.add(dueDate.toISOString().split('T')[0]);
+      // Usar YYYY-MM-DD en zona horaria LOCAL para evitar problemas de UTC
+      const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+      existingDates.add(dateKey);
     });
   }
+  
+  console.log(`[RecurrenceGenerator] Fechas existentes: ${Array.from(existingDates).join(', ')}`);
   
   // Preparar batch para inserción
   const batch = db.batch();
   const now = Timestamp.now();
   
   for (const date of dates) {
-    const dateKey = date.toISOString().split('T')[0];
+    // Usar zona horaria LOCAL para la comparación
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     
     // Saltar si ya existe
     if (existingDates.has(dateKey)) {

@@ -223,6 +223,15 @@ export async function POST(request: NextRequest) {
     // Si es recurrente, generar las transacciones futuras
     if (isNewRecurrence && recurrenceId) {
       try {
+        // Primero actualizar la recurrencia con la fecha de la primera transacción
+        // para evitar que regenerate duplique esta transacción
+        await db.collection('recurrences').doc(recurrenceId).update({
+          lastGeneratedDate: Timestamp.fromDate(dueDate),
+          nextOccurrenceDate: Timestamp.fromDate(
+            calculateNextOccurrenceDate(dueDate, body.recurrence as RecurrenceFrequency, dueDate.getDate(), dueDate.getDay())
+          ),
+        });
+
         // Obtener la recurrencia recién creada
         const recurrenceDoc = await db.collection('recurrences').doc(recurrenceId).get();
         const recurrenceData = recurrenceDoc.data()!;
@@ -254,12 +263,20 @@ export async function POST(request: NextRequest) {
           startDate: nextStartDate, // Empezar desde la SIGUIENTE fecha
           endDate: recurrenceData.endDate?.toDate() || null,
           generateMonthsAhead: recurrenceData.generateMonthsAhead,
-          lastGeneratedDate: undefined, // No establecer para que genere desde startDate
+          lastGeneratedDate: dueDate, // La primera transacción ya fue generada
           status: 'ACTIVE' as RecurrenceStatus,
           createdBy: recurrenceData.createdBy,
         };
 
         // Generar transacciones futuras (la primera ya la creamos arriba)
+        console.log(`[Transactions API] Generando transacciones futuras:`, {
+          recurrenceId,
+          startDate: nextStartDate.toISOString(),
+          dueDate: dueDate.toISOString(),
+          frequency: recurrence.frequency,
+          dayOfMonth: recurrence.dayOfMonth,
+        });
+        
         const result = await generateTransactionsFromRecurrence(recurrence, userId, {
           fromDate: new Date(), // Desde hoy
           monthsAhead: 6,
@@ -267,7 +284,7 @@ export async function POST(request: NextRequest) {
         });
 
         generatedTransactions = result.transactionIds;
-        console.log(`[Transactions API] Generadas ${result.generatedCount} transacciones futuras para recurrencia ${recurrenceId}`);
+        console.log(`[Transactions API] Generadas ${result.generatedCount} transacciones futuras, saltadas ${result.skippedCount}, para recurrencia ${recurrenceId}`);
 
       } catch (genError) {
         console.error(`[Transactions API] Error generando transacciones futuras:`, genError);

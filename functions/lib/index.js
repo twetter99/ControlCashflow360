@@ -535,14 +535,17 @@ exports.generateRecurrences = functions.pubsub
                     var _a, _b;
                     const txData = txDoc.data();
                     const dueDate = ((_b = (_a = txData.dueDate) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) || new Date(txData.dueDate);
-                    existingDates.add(dueDate.toISOString().split('T')[0]);
+                    // Usar zona horaria local para evitar problemas de UTC
+                    const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+                    existingDates.add(dateKey);
                 });
                 // Crear transacciones que no existan
                 const batch = config_1.db.batch();
                 let batchCount = 0;
                 let lastGeneratedDate = null;
                 for (const date of dates) {
-                    const dateKey = date.toISOString().split('T')[0];
+                    // Usar zona horaria local para la comparación
+                    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
                     // Saltar si ya existe
                     if (existingDates.has(dateKey)) {
                         totalSkipped++;

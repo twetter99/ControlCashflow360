@@ -74,6 +74,7 @@ export default function TransactionsPage() {
   // Estado para selección múltiple
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -368,8 +369,9 @@ export default function TransactionsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || isSubmitting) return;
     
+    setIsSubmitting(true);
     try {
       if (editingTransaction) {
         // Buscar la transacción original para ver si es recurrente
@@ -480,6 +482,8 @@ export default function TransactionsPage() {
     } catch (error) {
       console.error('Error guardando movimiento:', error);
       toast.error('Error al guardar el movimiento');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1152,8 +1156,8 @@ export default function TransactionsPage() {
                 >
                   Cancelar
                 </Button>
-                <Button type="submit">
-                  {editingTransaction ? 'Guardar Cambios' : 'Crear Movimiento'}
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? 'Guardando...' : (editingTransaction ? 'Guardar Cambios' : 'Crear Movimiento')}
                 </Button>
               </div>
             </form>

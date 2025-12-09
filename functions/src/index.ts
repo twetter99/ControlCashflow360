@@ -640,7 +640,9 @@ export const generateRecurrences = functions.pubsub
           existingSnap.docs.forEach(txDoc => {
             const txData = txDoc.data();
             const dueDate = txData.dueDate?.toDate?.() || new Date(txData.dueDate);
-            existingDates.add(dueDate.toISOString().split('T')[0]);
+            // Usar zona horaria local para evitar problemas de UTC
+            const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+            existingDates.add(dateKey);
           });
 
           // Crear transacciones que no existan
@@ -649,7 +651,8 @@ export const generateRecurrences = functions.pubsub
           let lastGeneratedDate: Date | null = null;
 
           for (const date of dates) {
-            const dateKey = date.toISOString().split('T')[0];
+            // Usar zona horaria local para la comparación
+            const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
             
             // Saltar si ya existe
             if (existingDates.has(dateKey)) {
