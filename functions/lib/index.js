@@ -364,9 +364,13 @@ exports.checkStaleData = functions.pubsub
 // ============================
 /**
  * Calcula la próxima fecha de ocurrencia basada en la frecuencia
+ * IMPORTANTE: Usa técnica de "día 1 primero" para evitar overflow de fechas
+ * Ej: Si estamos en 31/01 y sumamos 1 mes, JS hace 31/02 → 03/03 (overflow)
+ * Solución: Ir a día 1, sumar mes, luego ajustar al día correcto
  */
 function calculateNextOccurrenceDate(currentDate, frequency, dayOfMonth, dayOfWeek) {
     const next = new Date(currentDate);
+    const originalDay = dayOfMonth || currentDate.getDate();
     switch (frequency) {
         case 'DAILY':
             next.setDate(next.getDate() + 1);
@@ -377,23 +381,34 @@ function calculateNextOccurrenceDate(currentDate, frequency, dayOfMonth, dayOfWe
         case 'BIWEEKLY':
             next.setDate(next.getDate() + 14);
             break;
-        case 'MONTHLY':
-            next.setMonth(next.getMonth() + 1);
-            if (dayOfMonth) {
-                const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-                next.setDate(Math.min(dayOfMonth, maxDay));
-            }
+        case 'MONTHLY': {
+            // Evitar overflow: ir al día 1 primero, sumar mes, luego ajustar día
+            const currentMonth = next.getMonth();
+            next.setDate(1);
+            next.setMonth(currentMonth + 1);
+            const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+            next.setDate(Math.min(originalDay, maxDay));
             break;
-        case 'QUARTERLY':
-            next.setMonth(next.getMonth() + 3);
-            if (dayOfMonth) {
-                const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-                next.setDate(Math.min(dayOfMonth, maxDay));
-            }
+        }
+        case 'QUARTERLY': {
+            // Evitar overflow: ir al día 1 primero, sumar 3 meses, luego ajustar día
+            const currentMonth = next.getMonth();
+            next.setDate(1);
+            next.setMonth(currentMonth + 3);
+            const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+            next.setDate(Math.min(originalDay, maxDay));
             break;
-        case 'YEARLY':
+        }
+        case 'YEARLY': {
+            // Evitar overflow: ir al día 1 primero, sumar año, luego ajustar día
+            const currentMonth = next.getMonth();
+            next.setDate(1);
             next.setFullYear(next.getFullYear() + 1);
+            next.setMonth(currentMonth);
+            const maxDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+            next.setDate(Math.min(originalDay, maxDay));
             break;
+        }
         default:
             break;
     }
@@ -499,13 +514,12 @@ exports.generateRecurrences = functions.pubsub
                     }
                     continue;
                 }
-                // Calcular fecha límite de generación
+                // Calcular fecha límite de generación (ventana deslizante de 6 meses desde hoy)
                 const maxDate = new Date(today);
                 maxDate.setMonth(maxDate.getMonth() + recurrence.generateMonthsAhead);
-                // Determinar desde cuándo generar
-                const generateFrom = recurrence.lastGeneratedDate
-                    ? new Date(Math.max(recurrence.lastGeneratedDate.getTime(), today.getTime()))
-                    : recurrence.startDate;
+                // Siempre empezar desde startDate - el sistema de skipExisting evita duplicados
+                // Esto garantiza que no se pierdan ocurrencias intermedias
+                const generateFrom = recurrence.startDate;
                 // Generar fechas de ocurrencia
                 const dates = generateOccurrenceDates(generateFrom, recurrence.endDate, recurrence.frequency, recurrence.dayOfMonth, recurrence.dayOfWeek, maxDate);
                 if (dates.length === 0) {
