@@ -250,3 +250,155 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
   });
 }
+
+/**
+ * PATCH /api/loans/[id] - Regenerar cuotas del préstamo
+ * Elimina las cuotas pendientes y genera nuevas con las fechas correctas
+ */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  return withErrorHandling(async () => {
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
+
+    const { id } = await params;
+
+    const db = getAdminDb();
+    const docRef = db.collection(COLLECTION).doc(id);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return errorResponse('Préstamo no encontrado', 404, 'NOT_FOUND');
+    }
+
+    const data = docSnap.data()!;
+    
+    if (!verifyOwnership(data.userId, userId)) {
+      return errorResponse('No tienes permiso para modificar este préstamo', 403, 'FORBIDDEN');
+    }
+
+    // Obtener transacciones existentes del préstamo
+    const txSnapshot = await db.collection(TRANSACTIONS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('loanId', '==', id)
+      .get();
+
+    // Separar cuotas pagadas de pendientes
+    const paidInstallments = txSnapshot.docs.filter(doc => doc.data().status === 'PAID');
+    const pendingInstallments = txSnapshot.docs.filter(doc => doc.data().status === 'PENDING');
+
+    const batch = db.batch();
+    
+    // Eliminar solo cuotas pendientes
+    for (const txDoc of pendingInstallments) {
+      batch.delete(txDoc.ref);
+    }
+
+    // Calcular cuántas cuotas quedan por generar
+    const remainingInstallments = data.remainingInstallments - paidInstallments.length;
+    
+    if (remainingInstallments <= 0) {
+      return errorResponse('No hay cuotas pendientes para regenerar', 400, 'NO_PENDING_INSTALLMENTS');
+    }
+
+    // Calcular la primera fecha pendiente
+    // Si hay cuotas pagadas, la siguiente es después de la última pagada
+    let firstPendingDate: Date;
+    if (paidInstallments.length > 0) {
+      // Ordenar por número de cuota y obtener la última
+      const sortedPaid = paidInstallments.sort((a, b) => {
+        const numA = a.data().loanInstallmentNumber || 0;
+        const numB = b.data().loanInstallmentNumber || 0;
+        return numB - numA;
+      });
+      const lastPaidDate = sortedPaid[0].data().dueDate?.toDate?.() || new Date();
+      firstPendingDate = calculateNextInstallmentDate(lastPaidDate, data.paymentDay);
+    } else {
+      firstPendingDate = data.firstPendingDate?.toDate?.() || new Date();
+    }
+
+    const now = Timestamp.now();
+    const paymentDay = data.paymentDay || 1;
+
+    // Generar nuevas cuotas
+    for (let i = 1; i <= remainingInstallments; i++) {
+      const dueDate = calculateInstallmentDate(firstPendingDate, i, paymentDay);
+      const installmentNumber = paidInstallments.length + i;
+
+      const transactionRef = db.collection(TRANSACTIONS_COLLECTION).doc();
+      batch.set(transactionRef, {
+        userId: data.userId,
+        companyId: data.companyId,
+        type: 'EXPENSE',
+        amount: data.monthlyPayment,
+        status: 'PENDING',
+        dueDate: Timestamp.fromDate(dueDate),
+        category: 'Préstamo',
+        description: `Cuota ${installmentNumber}/${data.remainingInstallments} - ${data.alias || data.bankName}`,
+        thirdPartyName: data.bankName,
+        notes: data.originalPrincipal > 0 
+          ? `Préstamo: ${data.alias || data.bankName}. Capital original: ${data.originalPrincipal}€, Interés: ${data.interestRate}%`
+          : `Préstamo: ${data.alias || data.bankName}. Interés: ${data.interestRate}%`,
+        paymentMethod: 'DIRECT_DEBIT',
+        chargeAccountId: data.chargeAccountId || null,
+        loanId: id,
+        loanInstallmentNumber: installmentNumber,
+        recurrence: 'NONE',
+        certainty: 'HIGH',
+        createdAt: now,
+        updatedAt: now,
+        createdBy: userId,
+        lastUpdatedBy: userId,
+      });
+    }
+
+    // Actualizar el préstamo con la nueva fecha de primera cuota pendiente
+    batch.update(docRef, {
+      firstPendingDate: Timestamp.fromDate(firstPendingDate),
+      updatedAt: now,
+      lastUpdatedBy: userId,
+    });
+
+    await batch.commit();
+
+    const updatedSnap = await docRef.get();
+    return successResponse({
+      ...mapToLoan(updatedSnap.id, updatedSnap.data()!),
+      message: `Cuotas regeneradas: ${pendingInstallments.length} eliminadas, ${remainingInstallments} creadas`,
+      deletedCount: pendingInstallments.length,
+      createdCount: remainingInstallments,
+    });
+  });
+}
+
+/**
+ * Calcula la fecha de la siguiente cuota mensual
+ */
+function calculateNextInstallmentDate(lastDate: Date, paymentDay: number): Date {
+  const next = new Date(lastDate);
+  next.setDate(1);
+  next.setMonth(next.getMonth() + 1);
+  const lastDayOfMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(paymentDay, lastDayOfMonth));
+  return next;
+}
+
+/**
+ * Calcula la fecha de la cuota N dado el día de pago y la fecha de primera cuota pendiente
+ */
+function calculateInstallmentDate(
+  firstPendingDate: Date, 
+  installmentNumber: number, 
+  paymentDay: number
+): Date {
+  const start = new Date(firstPendingDate);
+  const targetMonth = start.getMonth() + (installmentNumber - 1);
+  const targetYear = start.getFullYear() + Math.floor(targetMonth / 12);
+  const adjustedMonth = targetMonth % 12;
+  
+  const targetDate = new Date(targetYear, adjustedMonth, 1);
+  const lastDayOfMonth = new Date(targetYear, adjustedMonth + 1, 0).getDate();
+  targetDate.setDate(Math.min(paymentDay, lastDayOfMonth));
+  
+  return targetDate;
+}
