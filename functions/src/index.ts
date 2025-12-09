@@ -644,6 +644,21 @@ export const generateRecurrences = functions.pubsub
             const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
             existingDates.add(dateKey);
           });
+          
+          // También buscar por descripción para evitar duplicados con diferente recurrenceId
+          const existingByDescSnap = await db.collection('transactions')
+            .where('userId', '==', recurrence.userId)
+            .where('companyId', '==', recurrence.companyId)
+            .where('type', '==', recurrence.type)
+            .where('description', '==', recurrence.name)
+            .get();
+          
+          existingByDescSnap.docs.forEach(txDoc => {
+            const txData = txDoc.data();
+            const dueDate = txData.dueDate?.toDate?.() || new Date(txData.dueDate);
+            const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+            existingDates.add(dateKey);
+          });
 
           // Crear transacciones que no existan
           const batch = db.batch();

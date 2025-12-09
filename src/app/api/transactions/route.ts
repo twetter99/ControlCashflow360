@@ -139,6 +139,33 @@ export async function POST(request: NextRequest) {
     const dueDate = body.dueDate instanceof Date ? body.dueDate : new Date(body.dueDate);
     const paidDate = body.paidDate ? (body.paidDate instanceof Date ? body.paidDate : new Date(body.paidDate)) : null;
     
+    // Normalizar la fecha para la verificación de duplicados (solo YYYY-MM-DD)
+    const dueDateStart = new Date(dueDate);
+    dueDateStart.setHours(0, 0, 0, 0);
+    const dueDateEnd = new Date(dueDate);
+    dueDateEnd.setHours(23, 59, 59, 999);
+    
+    // Verificar duplicados: misma empresa, tipo, monto, descripción y fecha
+    // Esto previene doble-clics, múltiples pestañas, etc.
+    const duplicateCheck = await db.collection(COLLECTION)
+      .where('userId', '==', userId)
+      .where('companyId', '==', body.companyId)
+      .where('type', '==', body.type)
+      .where('amount', '==', body.amount)
+      .where('dueDate', '>=', Timestamp.fromDate(dueDateStart))
+      .where('dueDate', '<=', Timestamp.fromDate(dueDateEnd))
+      .get();
+    
+    // Si hay transacciones con la misma descripción, es un duplicado
+    const exactDuplicate = duplicateCheck.docs.find(doc => 
+      doc.data().description === body.description
+    );
+    
+    if (exactDuplicate) {
+      console.log(`[Transactions API] Detectado duplicado, devolviendo transacción existente: ${exactDuplicate.id}`);
+      return successResponse(mapToTransaction(exactDuplicate.id, exactDuplicate.data()));
+    }
+    
     // Determinar si es una transacción recurrente (no NONE y no es ya una instancia)
     const isNewRecurrence = body.recurrence && 
                             body.recurrence !== 'NONE' && 

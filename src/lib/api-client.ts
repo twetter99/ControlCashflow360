@@ -409,6 +409,21 @@ export const transactionsApi = {
       }),
     });
   },
+
+  /**
+   * Limpiar transacciones duplicadas
+   */
+  async cleanupDuplicates(): Promise<{
+    message: string;
+    transactionsDeleted: number;
+    recurrencesDeleted: number;
+    totalTransactionsAnalyzed: number;
+    totalRecurrencesAnalyzed: number;
+  }> {
+    return apiRequest('/api/transactions/cleanup-duplicates', {
+      method: 'POST',
+    });
+  },
 };
 
 // ============================================

@@ -539,6 +539,20 @@ exports.generateRecurrences = functions.pubsub
                     const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
                     existingDates.add(dateKey);
                 });
+                // También buscar por descripción para evitar duplicados con diferente recurrenceId
+                const existingByDescSnap = await config_1.db.collection('transactions')
+                    .where('userId', '==', recurrence.userId)
+                    .where('companyId', '==', recurrence.companyId)
+                    .where('type', '==', recurrence.type)
+                    .where('description', '==', recurrence.name)
+                    .get();
+                existingByDescSnap.docs.forEach(txDoc => {
+                    var _a, _b;
+                    const txData = txDoc.data();
+                    const dueDate = ((_b = (_a = txData.dueDate) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) || new Date(txData.dueDate);
+                    const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+                    existingDates.add(dateKey);
+                });
                 // Crear transacciones que no existan
                 const batch = config_1.db.batch();
                 let batchCount = 0;
