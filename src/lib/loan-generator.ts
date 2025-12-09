@@ -11,6 +11,9 @@ import { Loan, CreateTransactionInput } from '@/types';
 
 /**
  * Calcula la fecha de la cuota N dado el día de pago y la fecha de primera cuota pendiente
+ * IMPORTANTE: Usa técnica de "día 1 primero" para evitar overflow de fechas
+ * Ej: new Date(2025, 1, 31) haría febrero 31 → marzo 3 (overflow)
+ * Solución: Crear fecha con día 1, luego ajustar al día correcto
  */
 export function calculateInstallmentDate(
   firstPendingDate: Date, 
@@ -19,13 +22,18 @@ export function calculateInstallmentDate(
 ): Date {
   const start = new Date(firstPendingDate);
   // installmentNumber 1 = primera cuota (firstPendingDate), 2 = siguiente mes, etc.
-  const targetDate = new Date(start.getFullYear(), start.getMonth() + (installmentNumber - 1), paymentDay);
+  const targetMonth = start.getMonth() + (installmentNumber - 1);
+  const targetYear = start.getFullYear() + Math.floor(targetMonth / 12);
+  const adjustedMonth = targetMonth % 12;
   
-  // Ajustar si el día no existe en ese mes (ej: 31 de febrero -> 28/29 de febrero)
-  const lastDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
-  if (paymentDay > lastDayOfMonth) {
-    targetDate.setDate(lastDayOfMonth);
-  }
+  // Crear la fecha con día 1 para evitar overflow
+  const targetDate = new Date(targetYear, adjustedMonth, 1);
+  
+  // Obtener el último día del mes objetivo
+  const lastDayOfMonth = new Date(targetYear, adjustedMonth + 1, 0).getDate();
+  
+  // Ajustar al día de pago o al último día del mes si es menor
+  targetDate.setDate(Math.min(paymentDay, lastDayOfMonth));
   
   return targetDate;
 }
