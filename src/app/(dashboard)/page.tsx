@@ -42,7 +42,7 @@ interface ForecastBucket {
   startDay: number;        // Día inicial del período (0, 31, 61)
   endDay: number;          // Día final del período (30, 60, 90)
   incomes: number;         // Cobros REALES de transacciones en este período
-  estimatedIncomes: number; // Cobros ESTIMADOS del presupuesto mensual
+  estimatedIncomes: number; // Cobros ESPERADOS (pendientes de cobrar)
   effectiveIncomes: number; // Cobros efectivos (real si hay, si no estimado)
   expenses: number;        // Pagos SOLO de este período
   netFlow: number;         // Flujo neto de este período (effectiveIncomes - expenses)
@@ -397,7 +397,7 @@ export default function DashboardPage() {
       // Obtener el presupuesto mensual COMPLETO (objetivo del mes)
       const monthlyBudget = getMonthlyBudget(period.year, period.month);
       
-      // Cobros ESTIMADOS = Presupuesto - Reales (mínimo 0, nunca negativo)
+      // Cobros ESPERADOS = Presupuesto - Reales (mínimo 0, nunca negativo)
       // A medida que se añaden transacciones reales, el estimado va bajando
       const estimatedIncomes = Math.max(0, monthlyBudget - incomes);
       
@@ -771,9 +771,9 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {/* Cobros Estimados (del presupuesto) */}
+                  {/* Cobros Esperados (pendientes de cobrar) */}
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500 text-sm">Cobros estimados</span>
+                    <span className="text-gray-500 text-sm">Cobros esperados</span>
                     <span className={`font-medium ${bucket.estimatedIncomes > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
                       +{formatCurrency(bucket.estimatedIncomes)}
                     </span>
