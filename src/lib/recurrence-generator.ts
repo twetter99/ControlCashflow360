@@ -230,11 +230,12 @@ export async function generateTransactionsFromRecurrence(
     return result;
   }
   
-  // Si skipExisting, buscar transacciones ya generadas para esta recurrencia
-  // También buscar por descripción para evitar duplicados si hay múltiples recurrencias similares
+  // Si skipExisting, buscar transacciones ya generadas
+  // Buscar por tercero + tipo + monto + fecha para detectar duplicados
+  // aunque vengan de diferentes recurrencias o tengan diferentes nombres
   let existingDates = new Set<string>();
   if (skipExisting) {
-    // Buscar por recurrenceId
+    // Buscar por recurrenceId (las de esta misma recurrencia)
     const existingSnapshot = await db.collection('transactions')
       .where('recurrenceId', '==', recurrence.id)
       .where('userId', '==', userId)
@@ -243,25 +244,27 @@ export async function generateTransactionsFromRecurrence(
     existingSnapshot.docs.forEach(doc => {
       const data = doc.data();
       const dueDate = data.dueDate?.toDate?.() || new Date(data.dueDate);
-      // Usar YYYY-MM-DD en zona horaria LOCAL para evitar problemas de UTC
       const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
       existingDates.add(dateKey);
     });
     
-    // También buscar por descripción, companyId y tipo para evitar duplicados con diferente recurrenceId
-    const existingByDescSnapshot = await db.collection('transactions')
-      .where('userId', '==', userId)
-      .where('companyId', '==', recurrence.companyId)
-      .where('type', '==', recurrence.type)
-      .where('description', '==', recurrence.name)
-      .get();
-    
-    existingByDescSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      const dueDate = data.dueDate?.toDate?.() || new Date(data.dueDate);
-      const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
-      existingDates.add(dateKey);
-    });
+    // Buscar por thirdPartyId + tipo + monto (detecta duplicados de otras recurrencias)
+    if (recurrence.thirdPartyId) {
+      const existingByThirdPartySnapshot = await db.collection('transactions')
+        .where('userId', '==', userId)
+        .where('companyId', '==', recurrence.companyId)
+        .where('thirdPartyId', '==', recurrence.thirdPartyId)
+        .where('type', '==', recurrence.type)
+        .where('amount', '==', recurrence.baseAmount)
+        .get();
+      
+      existingByThirdPartySnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const dueDate = data.dueDate?.toDate?.() || new Date(data.dueDate);
+        const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+        existingDates.add(dateKey);
+      });
+    }
   }
   
   console.log(`[RecurrenceGenerator] Fechas existentes: ${Array.from(existingDates).join(', ')}`);

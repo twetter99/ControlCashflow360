@@ -30,7 +30,8 @@ async function cleanupDuplicates() {
   recurrencesSnap.docs.forEach(doc => {
     const data = doc.data();
     // Clave: companyId + thirdPartyId + type + frequency + dayOfMonth + baseAmount
-    const key = `${data.companyId}|${data.thirdPartyId}|${data.type}|${data.frequency}|${data.dayOfMonth}|${data.baseAmount}`;
+    // NO incluir name para detectar recurrencias conceptualmente iguales
+    const key = `${data.companyId}|${data.thirdPartyId || ''}|${data.type}|${data.frequency}|${data.dayOfMonth}|${data.baseAmount}`;
     
     if (!recurrenceGroups[key]) {
       recurrenceGroups[key] = [];

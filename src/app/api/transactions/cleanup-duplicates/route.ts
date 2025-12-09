@@ -36,7 +36,8 @@ export async function POST(request: NextRequest) {
       .where('userId', '==', userId)
       .get();
 
-    // Agrupar por clave única: companyId + type + amount + description + date
+    // Agrupar por clave única: companyId + thirdPartyId + type + amount + date
+    // NO incluir description para detectar duplicados con nombres diferentes
     const groups: Record<string, DuplicateItem[]> = {};
 
     snapshot.docs.forEach(doc => {
@@ -44,8 +45,8 @@ export async function POST(request: NextRequest) {
       const dueDate = data.dueDate?.toDate?.() || new Date(data.dueDate);
       const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
       
-      // Clave única para identificar duplicados
-      const key = `${data.companyId}|${data.type}|${data.amount}|${data.description}|${dateKey}`;
+      // Clave única: tercero + tipo + monto + fecha (sin description)
+      const key = `${data.companyId}|${data.thirdPartyId || ''}|${data.type}|${data.amount}|${dateKey}`;
       
       if (!groups[key]) {
         groups[key] = [];
@@ -100,8 +101,9 @@ export async function POST(request: NextRequest) {
 
     recurrencesSnapshot.docs.forEach(doc => {
       const data = doc.data();
-      // Clave única: companyId + name + type + frequency
-      const key = `${data.companyId}|${data.name}|${data.type}|${data.frequency}`;
+      // Clave única: companyId + thirdPartyId + type + frequency + dayOfMonth + baseAmount
+      // NO incluir name para detectar recurrencias conceptualmente iguales
+      const key = `${data.companyId}|${data.thirdPartyId || ''}|${data.type}|${data.frequency}|${data.dayOfMonth}|${data.baseAmount}`;
       
       if (!recurrenceGroups[key]) {
         recurrenceGroups[key] = [];

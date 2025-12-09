@@ -640,25 +640,27 @@ export const generateRecurrences = functions.pubsub
           existingSnap.docs.forEach(txDoc => {
             const txData = txDoc.data();
             const dueDate = txData.dueDate?.toDate?.() || new Date(txData.dueDate);
-            // Usar zona horaria local para evitar problemas de UTC
             const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
             existingDates.add(dateKey);
           });
           
-          // También buscar por descripción para evitar duplicados con diferente recurrenceId
-          const existingByDescSnap = await db.collection('transactions')
-            .where('userId', '==', recurrence.userId)
-            .where('companyId', '==', recurrence.companyId)
-            .where('type', '==', recurrence.type)
-            .where('description', '==', recurrence.name)
-            .get();
-          
-          existingByDescSnap.docs.forEach(txDoc => {
-            const txData = txDoc.data();
-            const dueDate = txData.dueDate?.toDate?.() || new Date(txData.dueDate);
-            const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
-            existingDates.add(dateKey);
-          });
+          // Buscar por thirdPartyId + tipo + monto (detecta duplicados de otras recurrencias)
+          if (recurrence.thirdPartyId) {
+            const existingByThirdPartySnap = await db.collection('transactions')
+              .where('userId', '==', recurrence.userId)
+              .where('companyId', '==', recurrence.companyId)
+              .where('thirdPartyId', '==', recurrence.thirdPartyId)
+              .where('type', '==', recurrence.type)
+              .where('amount', '==', recurrence.baseAmount)
+              .get();
+            
+            existingByThirdPartySnap.docs.forEach(txDoc => {
+              const txData = txDoc.data();
+              const dueDate = txData.dueDate?.toDate?.() || new Date(txData.dueDate);
+              const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+              existingDates.add(dateKey);
+            });
+          }
 
           // Crear transacciones que no existan
           const batch = db.batch();
