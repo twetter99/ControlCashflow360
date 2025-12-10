@@ -140,3 +140,205 @@ export function addDays(date: Date, days: number): Date {
   result.setDate(result.getDate() + days);
   return result;
 }
+
+// ============================================
+// IBAN Validation & Formatting
+// ============================================
+
+/**
+ * Longitudes de IBAN por país (códigos ISO 3166-1 alpha-2)
+ */
+const IBAN_LENGTHS: Record<string, number> = {
+  ES: 24, // España
+  AD: 24, // Andorra
+  AT: 20, // Austria
+  BE: 16, // Bélgica
+  CH: 21, // Suiza
+  DE: 22, // Alemania
+  FR: 27, // Francia
+  GB: 22, // Reino Unido
+  IT: 27, // Italia
+  NL: 18, // Países Bajos
+  PT: 25, // Portugal
+  // Añadir más países según necesidad
+};
+
+/**
+ * Resultado de validación de IBAN
+ */
+export interface IBANValidationResult {
+  isValid: boolean;
+  error?: string;
+  countryCode?: string;
+  formattedIBAN?: string;
+}
+
+/**
+ * Formatea un IBAN en bloques de 4 caracteres
+ */
+export function formatIBAN(iban: string): string {
+  if (!iban) return '';
+  // Limpiar: quitar espacios y convertir a mayúsculas
+  const clean = iban.replace(/\s/g, '').toUpperCase();
+  // Formatear en bloques de 4
+  return clean.match(/.{1,4}/g)?.join(' ') || clean;
+}
+
+/**
+ * Limpia un IBAN (quita espacios, guiones y convierte a mayúsculas)
+ */
+export function cleanIBAN(iban: string): string {
+  if (!iban) return '';
+  return iban.replace(/[\s-]/g, '').toUpperCase();
+}
+
+/**
+ * Valida un IBAN usando el algoritmo MOD-97 (ISO 7064)
+ * @param iban - El IBAN a validar (con o sin espacios)
+ * @param isInternational - Si true, acepta cualquier país; si false, solo España
+ */
+export function validateIBAN(iban: string, isInternational: boolean = false): IBANValidationResult {
+  if (!iban || iban.trim() === '') {
+    return { isValid: true }; // IBAN vacío es válido (es opcional)
+  }
+
+  // Limpiar el IBAN
+  const clean = cleanIBAN(iban);
+
+  // Verificar que solo contenga caracteres alfanuméricos
+  if (!/^[A-Z0-9]+$/.test(clean)) {
+    return { 
+      isValid: false, 
+      error: 'El IBAN solo puede contener letras y números' 
+    };
+  }
+
+  // Verificar longitud mínima
+  if (clean.length < 15) {
+    return { 
+      isValid: false, 
+      error: 'El IBAN es demasiado corto' 
+    };
+  }
+
+  // Extraer código de país
+  const countryCode = clean.substring(0, 2);
+
+  // Verificar que empiece con letras (código de país)
+  if (!/^[A-Z]{2}/.test(clean)) {
+    return { 
+      isValid: false, 
+      error: 'El IBAN debe empezar con el código de país (ej: ES)' 
+    };
+  }
+
+  // Si no es internacional, solo aceptar España
+  if (!isInternational && countryCode !== 'ES') {
+    return { 
+      isValid: false, 
+      error: 'Solo se aceptan IBAN españoles. Marca "IBAN internacional" para otros países',
+      countryCode 
+    };
+  }
+
+  // Verificar longitud según país
+  const expectedLength = IBAN_LENGTHS[countryCode];
+  if (expectedLength) {
+    if (clean.length !== expectedLength) {
+      return { 
+        isValid: false, 
+        error: `El IBAN de ${countryCode} debe tener ${expectedLength} caracteres (tiene ${clean.length})`,
+        countryCode 
+      };
+    }
+  } else if (clean.length < 15 || clean.length > 34) {
+    // Longitud genérica para países no listados
+    return { 
+      isValid: false, 
+      error: 'Longitud de IBAN no válida',
+      countryCode 
+    };
+  }
+
+  // Verificar que después del código de país vengan 2 dígitos de control
+  if (!/^[A-Z]{2}[0-9]{2}/.test(clean)) {
+    return { 
+      isValid: false, 
+      error: 'Los dígitos de control del IBAN no son válidos',
+      countryCode 
+    };
+  }
+
+  // Algoritmo MOD-97 (ISO 7064)
+  // 1. Mover los 4 primeros caracteres al final
+  const rearranged = clean.substring(4) + clean.substring(0, 4);
+
+  // 2. Convertir letras a números (A=10, B=11, ..., Z=35)
+  let numericString = '';
+  for (const char of rearranged) {
+    if (char >= 'A' && char <= 'Z') {
+      numericString += (char.charCodeAt(0) - 55).toString(); // A=10, B=11, etc.
+    } else {
+      numericString += char;
+    }
+  }
+
+  // 3. Calcular módulo 97 (usando aritmética de precisión para números grandes)
+  let remainder = 0;
+  for (const digit of numericString) {
+    remainder = (remainder * 10 + parseInt(digit, 10)) % 97;
+  }
+
+  // 4. Si el resto es 1, el IBAN es válido
+  if (remainder !== 1) {
+    return { 
+      isValid: false, 
+      error: 'El IBAN no es válido (dígitos de control incorrectos)',
+      countryCode 
+    };
+  }
+
+  return { 
+    isValid: true, 
+    countryCode,
+    formattedIBAN: formatIBAN(clean)
+  };
+}
+
+/**
+ * Valida específicamente un IBAN español
+ * Incluye validación adicional del CCC (Código Cuenta Cliente)
+ */
+export function validateSpanishIBAN(iban: string): IBANValidationResult {
+  const baseValidation = validateIBAN(iban, false);
+  
+  if (!baseValidation.isValid) {
+    return baseValidation;
+  }
+
+  if (!iban || iban.trim() === '') {
+    return { isValid: true };
+  }
+
+  const clean = cleanIBAN(iban);
+  
+  // IBAN español: ES + 2 dígitos control + 4 entidad + 4 oficina + 2 DC + 10 cuenta
+  // Validar estructura adicional (opcional, ya que MOD-97 cubre la mayoría)
+  const entityCode = clean.substring(4, 8);
+  const officeCode = clean.substring(8, 12);
+  
+  // Verificar que entidad y oficina sean numéricos
+  if (!/^[0-9]{4}$/.test(entityCode) || !/^[0-9]{4}$/.test(officeCode)) {
+    return { 
+      isValid: false, 
+      error: 'Código de entidad u oficina no válido',
+      countryCode: 'ES'
+    };
+  }
+
+  return { 
+    isValid: true, 
+    countryCode: 'ES',
+    formattedIBAN: formatIBAN(clean)
+  };
+}

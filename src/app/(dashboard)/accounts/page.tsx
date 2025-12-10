@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Input, CurrencyInput } from '@/components/ui';
+import { Button, Card, Input, CurrencyInput, IBANInput } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountsApi, companiesApi, accountHoldsApi } from '@/lib/api-client';
@@ -53,6 +53,7 @@ export default function AccountsPage() {
   const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSecondaryAccounts, setShowSecondaryAccounts] = useState(false);
+  const [isIBANValid, setIsIBANValid] = useState(true);
   const [formData, setFormData] = useState<AccountFormData>({
     bankName: '',
     alias: '',
@@ -558,11 +559,16 @@ export default function AccountsPage() {
                 placeholder="Cuenta Corriente Principal"
                 required
               />
-              <Input
+              <IBANInput
                 label="Número de Cuenta (IBAN)"
                 value={formData.accountNumber}
-                onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
-                placeholder="ES12 1234 5678 90XX XXXX"
+                onChange={(value, isValid) => {
+                  setFormData({ ...formData, accountNumber: value });
+                  setIsIBANValid(isValid);
+                }}
+                showInternationalOption={false}
+                helpText="IBAN de la cuenta bancaria de tu empresa"
+                required
               />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>

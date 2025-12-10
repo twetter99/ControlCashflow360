@@ -14,3 +14,6 @@ export { default as ThirdPartyAutocomplete } from './ThirdPartyAutocomplete';
 
 export { CurrencyInput } from './CurrencyInput';
 export type { CurrencyInputProps } from './CurrencyInput';
+
+export { IBANInput } from './IBANInput';
+export type { IBANInputProps } from './IBANInput';

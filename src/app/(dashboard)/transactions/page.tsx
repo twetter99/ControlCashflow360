@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Input, ThirdPartyAutocomplete, CurrencyInput } from '@/components/ui';
+import { Button, Card, Input, ThirdPartyAutocomplete, CurrencyInput, IBANInput } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { transactionsApi, companiesApi, accountsApi, recurrenceVersionsApi } from '@/lib/api-client';
@@ -94,6 +94,10 @@ export default function TransactionsPage() {
     supplierBankAccount: string;
   }>({ paymentMethod: '', chargeAccountId: '', supplierBankAccount: '' });
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [isIBANValid, setIsIBANValid] = useState(true);
+  const [isBulkIBANValid, setIsBulkIBANValid] = useState(true);
+  const [isSupplierIBANInternational, setIsSupplierIBANInternational] = useState(false);
+  const [isBulkIBANInternational, setIsBulkIBANInternational] = useState(false);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -167,6 +171,17 @@ export default function TransactionsPage() {
     }
     return accounts;
   }, [accounts, effectiveCompanyFilter]);
+
+  // Obtener lista de IBANs únicos de proveedores para autocompletado
+  const supplierIBANSuggestions = React.useMemo(() => {
+    const ibans = new Set<string>();
+    transactions.forEach(tx => {
+      if (tx.supplierBankAccount && tx.supplierBankAccount.trim()) {
+        ibans.add(tx.supplierBankAccount.trim().toUpperCase().replace(/\s/g, ''));
+      }
+    });
+    return Array.from(ibans).sort();
+  }, [transactions]);
 
   // Resetear banco si ya no está en la lista filtrada
   React.useEffect(() => {
@@ -1344,11 +1359,18 @@ export default function TransactionsPage() {
                   
                   {/* IBAN solo si es transferencia */}
                   {formData.paymentMethod === 'TRANSFER' && (
-                    <Input
+                    <IBANInput
                       label="IBAN/Cuenta del proveedor"
                       value={formData.supplierBankAccount}
-                      onChange={(e) => setFormData({ ...formData, supplierBankAccount: e.target.value })}
-                      placeholder="Ej: ES91 2100 0418 4502 0005 1332"
+                      onChange={(value, isValid) => {
+                        setFormData({ ...formData, supplierBankAccount: value });
+                        setIsIBANValid(isValid);
+                      }}
+                      suggestions={supplierIBANSuggestions}
+                      showInternationalOption={true}
+                      isInternational={isSupplierIBANInternational}
+                      onInternationalChange={setIsSupplierIBANInternational}
+                      helpText="Cuenta bancaria del proveedor donde realizar el pago"
                     />
                   )}
                   
@@ -1879,19 +1901,19 @@ export default function TransactionsPage() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  IBAN del Proveedor/Acreedor
-                </label>
-                <input
-                  type="text"
-                  value={bulkUpdateFields.supplierBankAccount}
-                  onChange={(e) => setBulkUpdateFields(prev => ({ ...prev, supplierBankAccount: e.target.value }))}
-                  placeholder="ES00 0000 0000 0000 0000 0000"
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-                <p className="text-xs text-gray-500 mt-1">Cuenta bancaria donde se realiza el pago al proveedor</p>
-              </div>
+              <IBANInput
+                label="IBAN del Proveedor/Acreedor"
+                value={bulkUpdateFields.supplierBankAccount}
+                onChange={(value, isValid) => {
+                  setBulkUpdateFields(prev => ({ ...prev, supplierBankAccount: value }));
+                  setIsBulkIBANValid(isValid);
+                }}
+                suggestions={supplierIBANSuggestions}
+                showInternationalOption={true}
+                isInternational={isBulkIBANInternational}
+                onInternationalChange={setIsBulkIBANInternational}
+                helpText="Cuenta bancaria donde se realiza el pago al proveedor"
+              />
               
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
                 <p><strong>Nota:</strong> Esto actualizará TODAS las transacciones de esta recurrencia, tanto pasadas como futuras.</p>
@@ -1908,7 +1930,7 @@ export default function TransactionsPage() {
               </Button>
               <Button
                 onClick={handleBulkUpdateSeries}
-                disabled={isBulkUpdating || (!bulkUpdateFields.paymentMethod && !bulkUpdateFields.chargeAccountId && !bulkUpdateFields.supplierBankAccount)}
+                disabled={isBulkUpdating || !isBulkIBANValid || (!bulkUpdateFields.paymentMethod && !bulkUpdateFields.chargeAccountId && !bulkUpdateFields.supplierBankAccount)}
               >
                 {isBulkUpdating ? 'Actualizando...' : 'Aplicar cambios'}
               </Button>
