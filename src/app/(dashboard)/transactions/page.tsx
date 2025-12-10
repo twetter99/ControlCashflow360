@@ -67,6 +67,7 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<TransactionStatus | 'ALL'>('ALL');
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
+  const [filterHorizon, setFilterHorizon] = useState<string>('6M'); // 1M, 3M, 6M, 12M, ALL
   const [searchTerm, setSearchTerm] = useState('');
   
   // Estado para modal de opciones de edición de recurrencia
@@ -128,6 +129,21 @@ export default function TransactionsPage() {
     loadData();
   }, [user]);
 
+  // Calcular fecha límite del horizonte
+  const getHorizonDate = (horizon: string): Date | null => {
+    if (horizon === 'ALL') return null;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    switch (horizon) {
+      case '1M': now.setMonth(now.getMonth() + 1); break;
+      case '3M': now.setMonth(now.getMonth() + 3); break;
+      case '6M': now.setMonth(now.getMonth() + 6); break;
+      case '12M': now.setMonth(now.getMonth() + 12); break;
+      case '24M': now.setMonth(now.getMonth() + 24); break;
+    }
+    return now;
+  };
+
   // Filtrar transacciones
   let filteredTransactions = transactions;
   
@@ -139,6 +155,14 @@ export default function TransactionsPage() {
   }
   if (filterType !== 'ALL') {
     filteredTransactions = filteredTransactions.filter((tx) => tx.type === filterType);
+  }
+  // Filtrar por horizonte de fechas
+  const horizonDate = getHorizonDate(filterHorizon);
+  if (horizonDate) {
+    filteredTransactions = filteredTransactions.filter((tx) => {
+      const txDate = tx.dueDate ? new Date(tx.dueDate) : null;
+      return txDate && txDate <= horizonDate;
+    });
   }
   if (searchTerm) {
     filteredTransactions = filteredTransactions.filter(
@@ -664,6 +688,22 @@ export default function TransactionsPage() {
             <span className="text-sm text-gray-500">Filtros:</span>
           </div>
           
+          <div className="flex items-center space-x-2">
+            <Calendar size={16} className="text-gray-400" />
+            <select
+              value={filterHorizon}
+              onChange={(e) => setFilterHorizon(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="1M">Próximo mes</option>
+              <option value="3M">Próximos 3 meses</option>
+              <option value="6M">Próximos 6 meses</option>
+              <option value="12M">Próximo año</option>
+              <option value="24M">Próximos 2 años</option>
+              <option value="ALL">Todo el futuro</option>
+            </select>
+          </div>
+
           <div className="flex items-center space-x-2">
             <select
               value={filterStatus}
