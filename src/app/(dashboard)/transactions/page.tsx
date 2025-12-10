@@ -23,7 +23,8 @@ import {
   FileText,
   FileCheck,
   RotateCcw,
-  AlertCircle
+  AlertCircle,
+  Copy
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -75,6 +76,7 @@ export default function TransactionsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState(false);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -330,6 +332,57 @@ export default function TransactionsPage() {
     proceedWithEdit(tx);
   };
 
+  // Función para duplicar un movimiento
+  const handleDuplicate = (tx: Transaction) => {
+    // Calcular nueva fecha: si es del pasado, usar hoy; si es futura, mantener
+    const originalDate = new Date(tx.dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Si la fecha original es pasada, usar el mismo día del próximo mes
+    let newDate: Date;
+    if (originalDate < today) {
+      newDate = new Date(today);
+      newDate.setMonth(newDate.getMonth() + 1);
+      // Mantener el mismo día del mes si es posible
+      const originalDay = originalDate.getDate();
+      const maxDay = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
+      newDate.setDate(Math.min(originalDay, maxDay));
+    } else {
+      // Si es futura, mantener la misma fecha
+      newDate = new Date(originalDate);
+    }
+    
+    const newDateStr = newDate.toISOString().split('T')[0];
+    
+    // Pre-rellenar el formulario con los datos del movimiento original
+    setFormData({
+      type: tx.type,
+      description: tx.description || '',
+      thirdPartyName: tx.thirdPartyName || '',
+      thirdPartyId: tx.thirdPartyId,
+      category: tx.category,
+      amount: tx.amount,
+      dueDate: newDateStr,
+      companyId: tx.companyId,
+      notes: tx.notes || '',
+      invoiceNumber: '', // No copiar número de factura (será diferente)
+      recurrence: 'NONE', // No duplicar la recurrencia
+      certainty: tx.certainty || 'HIGH',
+      supplierInvoiceNumber: '', // No copiar (será diferente)
+      supplierBankAccount: tx.supplierBankAccount || '',
+      paymentMethod: tx.paymentMethod || 'TRANSFER',
+      chargeAccountId: tx.chargeAccountId || '',
+    });
+    
+    // Abrir formulario como nuevo (no edición)
+    setEditingTransaction(null);
+    setIsDuplicating(true);
+    setShowForm(true);
+    
+    toast.success('Datos copiados. Modifica lo necesario y guarda.');
+  };
+
   // Función para proceder con la edición después de elegir scope
   const proceedWithEdit = (tx: Transaction) => {
     // Convertir dueDate a string ISO si viene como Date o string
@@ -459,6 +512,7 @@ export default function TransactionsPage() {
       
       setShowForm(false);
       setEditingTransaction(null);
+      setIsDuplicating(false);
       setRecurrenceUpdateScope('THIS_ONLY');
       setVersionChangeReason('');
       setFormData({
@@ -800,6 +854,13 @@ export default function TransactionsPage() {
                       >
                         <Edit2 size={16} />
                       </button>
+                      <button
+                        onClick={() => handleDuplicate(tx)}
+                        className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                        title="Duplicar movimiento"
+                      >
+                        <Copy size={16} />
+                      </button>
                       {tx.status === 'PENDING' && (
                         <button
                           onClick={() => handleMarkAsPaid(tx.id)}
@@ -852,12 +913,13 @@ export default function TransactionsPage() {
             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
               <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-xl font-bold text-gray-900">
-                {editingTransaction ? 'Editar Movimiento' : 'Nuevo Movimiento'}
+                {editingTransaction ? 'Editar Movimiento' : isDuplicating ? 'Duplicar Movimiento' : 'Nuevo Movimiento'}
               </h2>
               <button
                 onClick={() => {
                   setShowForm(false);
                   setEditingTransaction(null);
+                  setIsDuplicating(false);
                   setFormData({
                     type: 'EXPENSE',
                     description: '',
@@ -1134,6 +1196,7 @@ export default function TransactionsPage() {
                   onClick={() => {
                     setShowForm(false);
                     setEditingTransaction(null);
+                    setIsDuplicating(false);
                     setFormData({
                       type: 'EXPENSE',
                       description: '',
