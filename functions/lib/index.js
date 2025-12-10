@@ -514,9 +514,20 @@ exports.generateRecurrences = functions.pubsub
                     }
                     continue;
                 }
-                // Calcular fecha límite de generación (ventana deslizante de 6 meses desde hoy)
-                const maxDate = new Date(today);
-                maxDate.setMonth(maxDate.getMonth() + recurrence.generateMonthsAhead);
+                // Calcular fecha límite de generación
+                // Si la recurrencia tiene endDate, generar TODAS las cuotas hasta esa fecha
+                // Si no tiene endDate (indefinida), usar ventana deslizante de monthsAhead
+                let maxDate;
+                if (recurrence.endDate) {
+                    // Recurrencia con fecha fin conocida: generar TODAS las cuotas
+                    maxDate = new Date(recurrence.endDate);
+                    console.log(`[generateRecurrences] Recurrencia ${recurrenceId}: endDate definido, generando hasta ${maxDate.toISOString()}`);
+                }
+                else {
+                    // Recurrencia indefinida: ventana deslizante de 6 meses
+                    maxDate = new Date(today);
+                    maxDate.setMonth(maxDate.getMonth() + recurrence.generateMonthsAhead);
+                }
                 // Siempre empezar desde startDate - el sistema de skipExisting evita duplicados
                 // Esto garantiza que no se pierdan ocurrencias intermedias
                 const generateFrom = recurrence.startDate;
