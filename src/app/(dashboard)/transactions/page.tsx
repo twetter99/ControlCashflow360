@@ -91,7 +91,8 @@ export default function TransactionsPage() {
   const [bulkUpdateFields, setBulkUpdateFields] = useState<{
     paymentMethod: string;
     chargeAccountId: string;
-  }>({ paymentMethod: '', chargeAccountId: '' });
+    supplierBankAccount: string;
+  }>({ paymentMethod: '', chargeAccountId: '', supplierBankAccount: '' });
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   
   const [formData, setFormData] = useState<TransactionFormData>({
@@ -488,6 +489,7 @@ export default function TransactionsPage() {
     const fields: {
       paymentMethod?: 'TRANSFER' | 'DIRECT_DEBIT';
       chargeAccountId?: string;
+      supplierBankAccount?: string;
     } = {};
     
     if (bulkUpdateFields.paymentMethod) {
@@ -495,6 +497,9 @@ export default function TransactionsPage() {
     }
     if (bulkUpdateFields.chargeAccountId) {
       fields.chargeAccountId = bulkUpdateFields.chargeAccountId;
+    }
+    if (bulkUpdateFields.supplierBankAccount) {
+      fields.supplierBankAccount = bulkUpdateFields.supplierBankAccount;
     }
     
     if (Object.keys(fields).length === 0) {
@@ -1790,6 +1795,7 @@ export default function TransactionsPage() {
                       setBulkUpdateFields({
                         paymentMethod: viewingTransaction.paymentMethod || '',
                         chargeAccountId: viewingTransaction.chargeAccountId || '',
+                        supplierBankAccount: viewingTransaction.supplierBankAccount || '',
                       });
                       setShowBulkUpdateModal(true);
                     }}
@@ -1865,6 +1871,20 @@ export default function TransactionsPage() {
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  IBAN del Proveedor/Acreedor
+                </label>
+                <input
+                  type="text"
+                  value={bulkUpdateFields.supplierBankAccount}
+                  onChange={(e) => setBulkUpdateFields(prev => ({ ...prev, supplierBankAccount: e.target.value }))}
+                  placeholder="ES00 0000 0000 0000 0000 0000"
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+                <p className="text-xs text-gray-500 mt-1">Cuenta bancaria donde se realiza el pago al proveedor</p>
+              </div>
               
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
                 <p><strong>Nota:</strong> Esto actualizará TODAS las transacciones de esta recurrencia, tanto pasadas como futuras.</p>
@@ -1881,7 +1901,7 @@ export default function TransactionsPage() {
               </Button>
               <Button
                 onClick={handleBulkUpdateSeries}
-                disabled={isBulkUpdating || (!bulkUpdateFields.paymentMethod && !bulkUpdateFields.chargeAccountId)}
+                disabled={isBulkUpdating || (!bulkUpdateFields.paymentMethod && !bulkUpdateFields.chargeAccountId && !bulkUpdateFields.supplierBankAccount)}
               >
                 {isBulkUpdating ? 'Actualizando...' : 'Aplicar cambios'}
               </Button>
