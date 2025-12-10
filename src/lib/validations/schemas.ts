@@ -22,6 +22,7 @@ export const TransactionTypeSchema = z.enum(['INCOME', 'EXPENSE']);
 export const TransactionStatusSchema = z.enum(['PENDING', 'PAID', 'CANCELLED']);
 export const RecurrenceFrequencySchema = z.enum(['NONE', 'DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY']);
 export const CertaintyLevelSchema = z.enum(['HIGH', 'MEDIUM', 'LOW']);
+export const PaymentMethodSchema = z.enum(['TRANSFER', 'DIRECT_DEBIT']);
 
 // ============================================
 // COMPANY SCHEMAS
@@ -151,6 +152,16 @@ export const CreateTransactionSchema = z.object({
     .pipe(z.string().max(50, 'El número de factura no puede exceder 50 caracteres'))
     .optional()
     .default(''),
+  // Campos para gastos de proveedores
+  supplierInvoiceNumber: sanitizedString(50)
+    .pipe(z.string().max(50, 'El número de factura del proveedor no puede exceder 50 caracteres'))
+    .optional(),
+  supplierBankAccount: sanitizedString(50)
+    .pipe(z.string().max(50, 'La cuenta bancaria del proveedor no puede exceder 50 caracteres'))
+    .optional(),
+  paymentMethod: PaymentMethodSchema.optional(),
+  chargeAccountId: z.string().optional(),
+  // Campos de recurrencia
   recurrence: RecurrenceFrequencySchema.default('NONE'),
   certainty: CertaintyLevelSchema.default('HIGH'),
   recurrenceId: z.string().nullable().optional(),

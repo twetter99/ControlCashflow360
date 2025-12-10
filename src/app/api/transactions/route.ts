@@ -35,6 +35,12 @@ function mapToTransaction(id: string, data: FirebaseFirestore.DocumentData): Tra
     thirdPartyName: data.thirdPartyName || '',
     notes: data.notes || '',
     invoiceNumber: data.invoiceNumber || '',
+    // Campos para gastos de proveedores
+    supplierInvoiceNumber: data.supplierInvoiceNumber || undefined,
+    supplierBankAccount: data.supplierBankAccount || undefined,
+    paymentMethod: data.paymentMethod || undefined,
+    chargeAccountId: data.chargeAccountId || undefined,
+    // Campos de recurrencia
     recurrence: data.recurrence || 'NONE',
     certainty: data.certainty || 'HIGH',
     recurrenceId: data.recurrenceId || null,
@@ -269,6 +275,12 @@ export async function POST(request: NextRequest) {
       thirdPartyName: body.thirdPartyName,
       notes: body.notes,
       invoiceNumber: body.invoiceNumber || '',
+      // Campos para gastos de proveedores
+      supplierInvoiceNumber: body.supplierInvoiceNumber || null,
+      supplierBankAccount: body.supplierBankAccount || null,
+      paymentMethod: body.paymentMethod || null,
+      chargeAccountId: body.chargeAccountId || null,
+      // Campos de recurrencia
       recurrence: body.recurrence,
       certainty: body.certainty,
       recurrenceId: recurrenceId,
