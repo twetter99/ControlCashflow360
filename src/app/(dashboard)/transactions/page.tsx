@@ -147,22 +147,56 @@ export default function TransactionsPage() {
     return now;
   };
 
-  // Obtener lista única de terceros para el filtro
+  // Calcular empresa efectiva (filtro local o global)
+  const effectiveCompanyFilter = filterCompanyId !== 'ALL' ? filterCompanyId : selectedCompanyId;
+
+  // Filtrar bancos según empresa seleccionada
+  const filteredAccounts = React.useMemo(() => {
+    if (effectiveCompanyFilter) {
+      return accounts.filter(a => a.companyId === effectiveCompanyFilter);
+    }
+    return accounts;
+  }, [accounts, effectiveCompanyFilter]);
+
+  // Resetear banco si ya no está en la lista filtrada
+  React.useEffect(() => {
+    if (filterAccountId !== 'ALL') {
+      const stillValid = filteredAccounts.some(a => a.id === filterAccountId);
+      if (!stillValid) {
+        setFilterAccountId('ALL');
+      }
+    }
+  }, [filteredAccounts, filterAccountId]);
+
+  // Obtener lista única de terceros filtrada por tipo (ingreso/gasto) y empresa
   const uniqueThirdParties = React.useMemo(() => {
     const map = new Map<string, string>();
     transactions.forEach(tx => {
       if (tx.thirdPartyId && tx.thirdPartyName) {
+        // Filtrar por tipo si está seleccionado
+        if (filterType !== 'ALL' && tx.type !== filterType) return;
+        // Filtrar por empresa si está seleccionada
+        if (effectiveCompanyFilter && tx.companyId !== effectiveCompanyFilter) return;
         map.set(tx.thirdPartyId, tx.thirdPartyName);
       }
     });
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [transactions]);
+  }, [transactions, filterType, effectiveCompanyFilter]);
+
+  // Resetear tercero si ya no está en la lista filtrada
+  React.useEffect(() => {
+    if (filterThirdPartyId !== 'ALL') {
+      const stillValid = uniqueThirdParties.some(([id]) => id === filterThirdPartyId);
+      if (!stillValid) {
+        setFilterThirdPartyId('ALL');
+      }
+    }
+  }, [uniqueThirdParties, filterThirdPartyId]);
 
   // Filtrar transacciones
   let filteredTransactions = transactions;
   
-  // Filtro de empresa: priorizar el filtro local, si no el global del contexto
-  const effectiveCompanyFilter = filterCompanyId !== 'ALL' ? filterCompanyId : selectedCompanyId;
+  // Filtro de empresa
   if (effectiveCompanyFilter) {
     filteredTransactions = filteredTransactions.filter((tx) => tx.companyId === effectiveCompanyFilter);
   }
@@ -748,7 +782,7 @@ export default function TransactionsPage() {
               className="border rounded-lg px-3 py-2 text-sm"
             >
               <option value="ALL">Todos los bancos</option>
-              {accounts.map(a => (
+              {filteredAccounts.map(a => (
                 <option key={a.id} value={a.id}>{a.bankName} - {a.alias}</option>
               ))}
             </select>
