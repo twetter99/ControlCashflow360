@@ -1109,13 +1109,13 @@ export default function DashboardPage() {
           </div>
           <div className="flex gap-4 text-sm">
             <span className="text-green-600 font-medium">
-              Cobros: +{upcomingStats[upcomingDaysFilter].incomes.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+              Cobros: +{formatCurrency(upcomingStats[upcomingDaysFilter].incomes)}
             </span>
             <span className="text-red-600 font-medium">
-              Pagos: -{upcomingStats[upcomingDaysFilter].expenses.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+              Pagos: -{formatCurrency(upcomingStats[upcomingDaysFilter].expenses)}
             </span>
             <span className={`font-semibold ${upcomingStats[upcomingDaysFilter].total >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-              Neto: {upcomingStats[upcomingDaysFilter].total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+              Neto: {formatCurrency(upcomingStats[upcomingDaysFilter].total)}
             </span>
           </div>
         </div>
