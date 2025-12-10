@@ -1836,6 +1836,11 @@ export default function TransactionsPage() {
               <p className="text-sm text-gray-500 mt-1">
                 Actualiza los campos de pago en todas las transacciones de esta recurrencia
               </p>
+              {viewingTransaction.companyId && (
+                <p className="text-sm font-medium text-blue-600 mt-2">
+                  Empresa: {companies.find(c => c.id === viewingTransaction.companyId)?.name || 'Desconocida'}
+                </p>
+              )}
             </div>
             
             <div className="p-6 space-y-4">
@@ -1864,7 +1869,9 @@ export default function TransactionsPage() {
                   className="w-full border rounded-lg px-3 py-2"
                 >
                   <option value="">No cambiar</option>
-                  {accounts.map(acc => (
+                  {accounts
+                    .filter(acc => !viewingTransaction.companyId || acc.companyId === viewingTransaction.companyId)
+                    .map(acc => (
                     <option key={acc.id} value={acc.id}>
                       {acc.bankName} - {acc.alias}
                     </option>
