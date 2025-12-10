@@ -28,7 +28,7 @@ import {
   Eye,
   RefreshCw
 } from 'lucide-react';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
 
 interface CompanyOption {
   id: string;
@@ -1025,7 +1025,7 @@ export default function TransactionsPage() {
                         )}
                         {tx.supplierBankAccount && tx.paymentMethod !== 'DIRECT_DEBIT' && (
                           <p className="text-xs text-gray-500 mt-0.5" title="IBAN del proveedor">
-                            💸 {tx.supplierBankAccount}
+                            💸 {formatIBAN(tx.supplierBankAccount)}
                           </p>
                         )}
                       </div>

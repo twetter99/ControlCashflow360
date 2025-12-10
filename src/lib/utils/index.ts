@@ -9,15 +9,21 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Formatea un número como moneda (EUR)
+ * Formatea un número como moneda (EUR) con formato español
+ * Asegura separador de miles con punto y decimales con coma
  */
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
+  // Asegurar que es un número
+  const num = typeof amount === 'number' ? amount : parseFloat(amount) || 0;
+  
+  // Formatear manualmente para garantizar formato español
+  const formatted = Math.abs(num).toLocaleString('es-ES', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amount);
+  });
+  
+  // Añadir símbolo € al final (formato español)
+  return `${formatted} €`;
 }
 
 /**
