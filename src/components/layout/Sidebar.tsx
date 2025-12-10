@@ -69,10 +69,11 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
       <aside
         className={cn(
           "w-64 bg-white border-r border-gray-200 h-screen flex flex-col",
-          // En móvil: fixed, animado, con z-index alto
-          "fixed lg:static inset-y-0 left-0 z-50",
+          // Siempre fixed para que el margin-left funcione en el contenido
+          "fixed inset-y-0 left-0 z-50",
           "transform transition-transform duration-300 ease-in-out",
           // En móvil: oculto por defecto, visible cuando isOpen
+          // En desktop (lg): siempre visible
           isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
