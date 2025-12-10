@@ -184,6 +184,41 @@ export async function POST(request: NextRequest) {
       const dayOfMonth = dueDate.getDate();
       const dayOfWeek = dueDate.getDay();
 
+      // Calcular fecha de fin si se especificó
+      let calculatedEndDate: Date | null = null;
+      
+      if (body.recurrenceEndDate) {
+        // Fecha de fin explícita
+        calculatedEndDate = body.recurrenceEndDate instanceof Date 
+          ? body.recurrenceEndDate 
+          : new Date(body.recurrenceEndDate);
+      } else if (body.recurrenceInstallments && body.recurrenceInstallments > 0) {
+        // Calcular fecha basada en número de cuotas
+        calculatedEndDate = new Date(dueDate);
+        const installments = body.recurrenceInstallments;
+        
+        switch (body.recurrence) {
+          case 'DAILY':
+            calculatedEndDate.setDate(calculatedEndDate.getDate() + (installments - 1));
+            break;
+          case 'WEEKLY':
+            calculatedEndDate.setDate(calculatedEndDate.getDate() + (installments - 1) * 7);
+            break;
+          case 'BIWEEKLY':
+            calculatedEndDate.setDate(calculatedEndDate.getDate() + (installments - 1) * 14);
+            break;
+          case 'MONTHLY':
+            calculatedEndDate.setMonth(calculatedEndDate.getMonth() + (installments - 1));
+            break;
+          case 'QUARTERLY':
+            calculatedEndDate.setMonth(calculatedEndDate.getMonth() + (installments - 1) * 3);
+            break;
+          case 'YEARLY':
+            calculatedEndDate.setFullYear(calculatedEndDate.getFullYear() + (installments - 1));
+            break;
+        }
+      }
+
       const recurrenceData = {
         userId,
         companyId: body.companyId,
@@ -200,7 +235,7 @@ export async function POST(request: NextRequest) {
         dayOfMonth: dayOfMonth,
         dayOfWeek: dayOfWeek,
         startDate: Timestamp.fromDate(dueDate),
-        endDate: null, // Indefinida por defecto
+        endDate: calculatedEndDate ? Timestamp.fromDate(calculatedEndDate) : null,
         generateMonthsAhead: 6,
         lastGeneratedDate: null,
         nextOccurrenceDate: null,
@@ -214,7 +249,7 @@ export async function POST(request: NextRequest) {
       const recurrenceRef = await db.collection('recurrences').add(recurrenceData);
       recurrenceId = recurrenceRef.id;
 
-      console.log(`[Transactions API] Creada recurrencia ${recurrenceId} para transacción recurrente`);
+      console.log(`[Transactions API] Creada recurrencia ${recurrenceId} para transacción recurrente${calculatedEndDate ? ` (fin: ${calculatedEndDate.toISOString().split('T')[0]})` : ' (indefinida)'}`);
     }
 
     // Crear la transacción principal

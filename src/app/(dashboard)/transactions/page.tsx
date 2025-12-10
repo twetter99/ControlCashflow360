@@ -46,6 +46,9 @@ interface TransactionFormData {
   invoiceNumber: string;
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;
+  // Campos opcionales para recurrencias con fecha fin
+  recurrenceEndDate: string;
+  recurrenceInstallments: number | '';
   // Campos opcionales para gastos
   supplierInvoiceNumber: string;
   supplierBankAccount: string;
@@ -91,6 +94,8 @@ export default function TransactionsPage() {
     invoiceNumber: '',
     recurrence: 'NONE',
     certainty: 'HIGH',
+    recurrenceEndDate: '',
+    recurrenceInstallments: '',
     supplierInvoiceNumber: '',
     supplierBankAccount: '',
     paymentMethod: 'TRANSFER',
@@ -369,6 +374,8 @@ export default function TransactionsPage() {
       invoiceNumber: '', // No copiar número de factura (será diferente)
       recurrence: 'NONE', // No duplicar la recurrencia
       certainty: tx.certainty || 'HIGH',
+      recurrenceEndDate: '',
+      recurrenceInstallments: '',
       supplierInvoiceNumber: '', // No copiar (será diferente)
       supplierBankAccount: tx.supplierBankAccount || '',
       paymentMethod: tx.paymentMethod || 'TRANSFER',
@@ -403,6 +410,8 @@ export default function TransactionsPage() {
       invoiceNumber: tx.invoiceNumber || '',
       recurrence: tx.recurrence || 'NONE',
       certainty: tx.certainty || 'HIGH',
+      recurrenceEndDate: '',
+      recurrenceInstallments: '',
       supplierInvoiceNumber: tx.supplierInvoiceNumber || '',
       supplierBankAccount: tx.supplierBankAccount || '',
       paymentMethod: tx.paymentMethod || 'TRANSFER',
@@ -528,6 +537,8 @@ export default function TransactionsPage() {
         invoiceNumber: '',
         recurrence: 'NONE',
         certainty: 'HIGH',
+        recurrenceEndDate: '',
+        recurrenceInstallments: '',
         supplierInvoiceNumber: '',
         supplierBankAccount: '',
         paymentMethod: 'TRANSFER',
@@ -933,6 +944,8 @@ export default function TransactionsPage() {
                     invoiceNumber: '',
                     recurrence: 'NONE',
                     certainty: 'HIGH',
+                    recurrenceEndDate: '',
+                    recurrenceInstallments: '',
                     supplierInvoiceNumber: '',
                     supplierBankAccount: '',
                     paymentMethod: 'TRANSFER',
@@ -1155,7 +1168,12 @@ export default function TransactionsPage() {
                   </label>
                   <select
                     value={formData.recurrence}
-                    onChange={(e) => setFormData({ ...formData, recurrence: e.target.value as RecurrenceFrequency })}
+                    onChange={(e) => setFormData({ 
+                      ...formData, 
+                      recurrence: e.target.value as RecurrenceFrequency,
+                      // Limpiar campos de fin de recurrencia si se cambia a NONE
+                      ...(e.target.value === 'NONE' ? { recurrenceEndDate: '', recurrenceInstallments: '' } : {})
+                    })}
                     className="w-full border rounded-lg px-4 py-3"
                   >
                     <option value="NONE">No recurrente</option>
@@ -1182,6 +1200,61 @@ export default function TransactionsPage() {
                   </select>
                 </div>
               </div>
+
+              {/* Opciones de fin de recurrencia - solo visible cuando hay recurrencia */}
+              {formData.recurrence !== 'NONE' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                  <p className="text-sm text-blue-700 font-medium">
+                    📅 Duración de la recurrencia (opcional)
+                  </p>
+                  <p className="text-xs text-blue-600">
+                    Dejar vacío para recurrencia indefinida
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Fecha fin
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.recurrenceEndDate}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          recurrenceEndDate: e.target.value,
+                          recurrenceInstallments: '' // Limpiar cuotas si se pone fecha
+                        })}
+                        min={formData.dueDate || undefined}
+                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                        disabled={!!formData.recurrenceInstallments}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Nº de cuotas
+                      </label>
+                      <input
+                        type="number"
+                        value={formData.recurrenceInstallments}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          recurrenceInstallments: e.target.value ? parseInt(e.target.value) : '',
+                          recurrenceEndDate: '' // Limpiar fecha si se ponen cuotas
+                        })}
+                        min={1}
+                        max={120}
+                        placeholder="Ej: 6"
+                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                        disabled={!!formData.recurrenceEndDate}
+                      />
+                    </div>
+                  </div>
+                  {formData.recurrenceInstallments && formData.dueDate && (
+                    <p className="text-xs text-blue-600">
+                      ℹ️ Se generarán {formData.recurrenceInstallments} {formData.type === 'INCOME' ? 'cobros' : 'pagos'}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <Input
                 label="Notas"
@@ -1210,6 +1283,8 @@ export default function TransactionsPage() {
                       invoiceNumber: '',
                       recurrence: 'NONE',
                       certainty: 'HIGH',
+                      recurrenceEndDate: '',
+                      recurrenceInstallments: '',
                       supplierInvoiceNumber: '',
                       supplierBankAccount: '',
                       paymentMethod: 'TRANSFER',

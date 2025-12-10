@@ -154,6 +154,13 @@ export const CreateTransactionSchema = z.object({
   recurrence: RecurrenceFrequencySchema.default('NONE'),
   certainty: CertaintyLevelSchema.default('HIGH'),
   recurrenceId: z.string().nullable().optional(),
+  // Campos opcionales para fin de recurrencia
+  recurrenceEndDate: z.union([
+    z.date(),
+    z.string().transform(val => val ? new Date(val) : null),
+    z.null(),
+  ]).optional().nullable(),
+  recurrenceInstallments: z.number().int().min(1).max(120).optional().nullable(),
   // Nuevos campos para instancias de recurrencia
   isRecurrenceInstance: z.boolean().optional().default(false),
   instanceDate: z.string().optional(),
