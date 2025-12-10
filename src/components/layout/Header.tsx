@@ -3,12 +3,16 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
-import { Bell, ChevronDown, LogOut, User } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Menu, User } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { companiesApi } from '@/lib/api-client';
 import { Company } from '@/types';
 
-export function Header() {
+interface HeaderProps {
+  onMenuClick?: () => void;
+}
+
+export function Header({ onMenuClick }: HeaderProps) {
   const { user, userProfile, logout } = useAuth();
   const { selectedCompanyId, setSelectedCompanyId } = useCompanyFilter();
   const [showUserMenu, setShowUserMenu] = React.useState(false);
@@ -44,52 +48,66 @@ export function Header() {
   };
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-      {/* Company Selector */}
-      <div className="relative">
-        <button
-          onClick={() => setShowCompanyMenu(!showCompanyMenu)}
-          className="flex items-center space-x-2 px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
-        >
-          <span className="text-sm font-medium text-gray-700">
-            {selectedCompany ? selectedCompany.name : 'Todas las empresas'}
-          </span>
-          <ChevronDown size={16} className="text-gray-400" />
-        </button>
+    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-6">
+      {/* Left Side - Menu button + Company Selector */}
+      <div className="flex items-center space-x-3">
+        {/* Hamburger menu - solo visible en móvil */}
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="lg:hidden p-2 -ml-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+            aria-label="Abrir menú"
+          >
+            <Menu size={24} />
+          </button>
+        )}
 
-        {showCompanyMenu && (
-          <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-            <div className="py-1">
-              <button
-                onClick={() => {
-                  setSelectedCompanyId(null);
-                  setShowCompanyMenu(false);
-                }}
-                className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${
-                  !selectedCompanyId ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
-                }`}
-              >
-                Todas las empresas
-              </button>
-              {companies.map((company) => (
+        {/* Company Selector */}
+        <div className="relative">
+          <button
+            onClick={() => setShowCompanyMenu(!showCompanyMenu)}
+            className="flex items-center space-x-2 px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+          >
+            <span className="text-sm font-medium text-gray-700 truncate max-w-[120px] sm:max-w-none">
+              {selectedCompany ? selectedCompany.name : 'Todas'}
+            </span>
+            <ChevronDown size={16} className="text-gray-400 flex-shrink-0" />
+          </button>
+
+          {showCompanyMenu && (
+            <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+              <div className="py-1">
                 <button
-                  key={company.id}
                   onClick={() => {
-                    setSelectedCompanyId(company.id);
+                    setSelectedCompanyId(null);
                     setShowCompanyMenu(false);
                   }}
                   className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${
-                    selectedCompanyId === company.id
-                      ? 'bg-primary-50 text-primary-700'
-                      : 'text-gray-700'
+                    !selectedCompanyId ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
                   }`}
                 >
-                  {company.name}
+                  Todas las empresas
                 </button>
-              ))}
+                {companies.map((company) => (
+                  <button
+                    key={company.id}
+                    onClick={() => {
+                      setSelectedCompanyId(company.id);
+                      setShowCompanyMenu(false);
+                    }}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${
+                      selectedCompanyId === company.id
+                        ? 'bg-primary-50 text-primary-700'
+                        : 'text-gray-700'
+                    }`}
+                  >
+                    {company.name}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Right Side */}
