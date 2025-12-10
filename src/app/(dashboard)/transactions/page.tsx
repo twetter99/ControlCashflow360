@@ -68,6 +68,9 @@ export default function TransactionsPage() {
   const [filterStatus, setFilterStatus] = useState<TransactionStatus | 'ALL'>('ALL');
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
   const [filterHorizon, setFilterHorizon] = useState<string>('6M'); // 1M, 3M, 6M, 12M, ALL
+  const [filterCompanyId, setFilterCompanyId] = useState<string>('ALL');
+  const [filterAccountId, setFilterAccountId] = useState<string>('ALL');
+  const [filterThirdPartyId, setFilterThirdPartyId] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   
   // Estado para modal de opciones de edición de recurrencia
@@ -144,11 +147,32 @@ export default function TransactionsPage() {
     return now;
   };
 
+  // Obtener lista única de terceros para el filtro
+  const uniqueThirdParties = React.useMemo(() => {
+    const map = new Map<string, string>();
+    transactions.forEach(tx => {
+      if (tx.thirdPartyId && tx.thirdPartyName) {
+        map.set(tx.thirdPartyId, tx.thirdPartyName);
+      }
+    });
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [transactions]);
+
   // Filtrar transacciones
   let filteredTransactions = transactions;
   
-  if (selectedCompanyId) {
-    filteredTransactions = filteredTransactions.filter((tx) => tx.companyId === selectedCompanyId);
+  // Filtro de empresa: priorizar el filtro local, si no el global del contexto
+  const effectiveCompanyFilter = filterCompanyId !== 'ALL' ? filterCompanyId : selectedCompanyId;
+  if (effectiveCompanyFilter) {
+    filteredTransactions = filteredTransactions.filter((tx) => tx.companyId === effectiveCompanyFilter);
+  }
+  // Filtro por cuenta/banco
+  if (filterAccountId !== 'ALL') {
+    filteredTransactions = filteredTransactions.filter((tx) => tx.chargeAccountId === filterAccountId);
+  }
+  // Filtro por tercero
+  if (filterThirdPartyId !== 'ALL') {
+    filteredTransactions = filteredTransactions.filter((tx) => tx.thirdPartyId === filterThirdPartyId);
   }
   if (filterStatus !== 'ALL') {
     filteredTransactions = filteredTransactions.filter((tx) => tx.status === filterStatus);
@@ -701,6 +725,45 @@ export default function TransactionsPage() {
               <option value="12M">Próximo año</option>
               <option value="24M">Próximos 2 años</option>
               <option value="ALL">Todo el futuro</option>
+            </select>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <select
+              value={filterCompanyId}
+              onChange={(e) => setFilterCompanyId(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="ALL">Todas las empresas</option>
+              {companies.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <select
+              value={filterAccountId}
+              onChange={(e) => setFilterAccountId(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="ALL">Todos los bancos</option>
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>{a.bankName} - {a.alias}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <select
+              value={filterThirdPartyId}
+              onChange={(e) => setFilterThirdPartyId(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="ALL">Todos los terceros</option>
+              {uniqueThirdParties.map(([id, name]) => (
+                <option key={id} value={id}>{name}</option>
+              ))}
             </select>
           </div>
 
