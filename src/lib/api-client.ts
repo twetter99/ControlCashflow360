@@ -968,3 +968,84 @@ export const recurrenceVersionsApi = {
     });
   },
 };
+
+// ============================================
+// Payment Orders API (Órdenes de Pago)
+// ============================================
+
+import { PaymentOrder, PaymentOrderStatus, PaymentOrderItem } from '@/types';
+
+export interface CreatePaymentOrderInput {
+  title: string;
+  description?: string;
+  defaultChargeAccountId?: string;
+  items: Omit<PaymentOrderItem, 'transactionId'>[];
+  transactionIds: string[];
+  notesForFinance?: string;
+}
+
+export const paymentOrdersApi = {
+  /**
+   * Obtener todas las órdenes de pago
+   */
+  async getAll(status?: PaymentOrderStatus): Promise<PaymentOrder[]> {
+    const params = status ? `?status=${status}` : '';
+    return apiRequest<PaymentOrder[]>(`/api/payment-orders${params}`);
+  },
+
+  /**
+   * Obtener una orden por ID
+   */
+  async getById(id: string): Promise<PaymentOrder> {
+    return apiRequest<PaymentOrder>(`/api/payment-orders/${id}`);
+  },
+
+  /**
+   * Crear nueva orden de pago
+   */
+  async create(data: CreatePaymentOrderInput): Promise<PaymentOrder> {
+    return apiRequest<PaymentOrder>('/api/payment-orders', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar una orden (datos o estado)
+   */
+  async update(id: string, data: Partial<PaymentOrder>): Promise<PaymentOrder> {
+    return apiRequest<PaymentOrder>(`/api/payment-orders/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar estado de una orden
+   */
+  async updateStatus(id: string, status: PaymentOrderStatus, executedByName?: string): Promise<PaymentOrder> {
+    return apiRequest<PaymentOrder>(`/api/payment-orders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, executedByName }),
+    });
+  },
+
+  /**
+   * Marcar una orden como ejecutada
+   */
+  async execute(id: string, executedByName?: string): Promise<PaymentOrder> {
+    return apiRequest<PaymentOrder>(`/api/payment-orders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'EXECUTED', executedByName }),
+    });
+  },
+
+  /**
+   * Eliminar una orden (solo si está en borrador)
+   */
+  async delete(id: string): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>(`/api/payment-orders/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};

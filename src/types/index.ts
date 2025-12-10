@@ -692,3 +692,70 @@ export const INCOME_CATEGORIES = [
 
 export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
 export type IncomeCategory = typeof INCOME_CATEGORIES[number];
+
+// ============================================
+// Colección: payment_orders (Órdenes de Pago)
+// ============================================
+
+export type PaymentOrderStatus = 'DRAFT' | 'AUTHORIZED' | 'EXECUTED' | 'CANCELLED';
+
+export interface PaymentOrderItem {
+  transactionId: string;
+  description: string;
+  thirdPartyName: string;
+  supplierInvoiceNumber?: string;
+  supplierBankAccount: string;  // IBAN del beneficiario
+  amount: number;
+  dueDate: Date;
+  chargeAccountId?: string;     // Cuenta de cargo específica (si difiere de la general)
+  notes?: string;
+}
+
+export interface PaymentOrder {
+  id: string;
+  userId: string;
+  orderNumber: string;          // Número secuencial: OP-2025-0001
+  
+  // Datos de la orden
+  title: string;                // "Orden de Pago - Diciembre 2025"
+  description?: string;
+  
+  // Cuenta(s) de cargo
+  defaultChargeAccountId?: string;  // Cuenta por defecto
+  
+  // Items de pago
+  items: PaymentOrderItem[];
+  
+  // Totales
+  totalAmount: number;
+  itemCount: number;
+  
+  // Estado y trazabilidad
+  status: PaymentOrderStatus;
+  
+  // Autorización
+  authorizedBy?: string;        // userId que autorizó
+  authorizedByName?: string;    // Nombre del usuario
+  authorizedAt?: Date;
+  
+  // Ejecución
+  executedBy?: string;          // userId que marcó como ejecutado
+  executedByName?: string;
+  executedAt?: Date;
+  
+  // Notas para financiero
+  notesForFinance?: string;
+  
+  // Auditoría
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreatePaymentOrderInput {
+  title: string;
+  description?: string;
+  defaultChargeAccountId?: string;
+  items: Omit<PaymentOrderItem, 'transactionId'>[];
+  transactionIds: string[];
+  notesForFinance?: string;
+}

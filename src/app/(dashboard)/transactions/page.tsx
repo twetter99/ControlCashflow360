@@ -5,7 +5,7 @@ import { Button, Card, Input, ThirdPartyAutocomplete, CurrencyInput, IBANInput }
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { transactionsApi, companiesApi, accountsApi, recurrenceVersionsApi } from '@/lib/api-client';
-import { Transaction, Company, Account, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer, RecurrenceUpdateScope } from '@/types';
+import { Transaction, Company, Account, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer, RecurrenceUpdateScope, PaymentOrder } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -26,9 +26,11 @@ import {
   AlertCircle,
   Copy,
   Eye,
-  RefreshCw
+  RefreshCw,
+  ClipboardList
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
+import { PaymentOrderModal } from '@/components/PaymentOrderModal';
 
 interface CompanyOption {
   id: string;
@@ -98,6 +100,9 @@ export default function TransactionsPage() {
   const [isBulkIBANValid, setIsBulkIBANValid] = useState(true);
   const [isSupplierIBANInternational, setIsSupplierIBANInternational] = useState(false);
   const [isBulkIBANInternational, setIsBulkIBANInternational] = useState(false);
+  
+  // Estado para modal de orden de pago
+  const [showPaymentOrderModal, setShowPaymentOrderModal] = useState(false);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -930,6 +935,13 @@ export default function TransactionsPage() {
               </button>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowPaymentOrderModal(true)}
+                className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors flex items-center gap-1"
+              >
+                <ClipboardList size={14} />
+                Generar Orden de Pago
+              </button>
               <button
                 onClick={handleCancelSelected}
                 disabled={isDeleting}
@@ -1978,6 +1990,19 @@ export default function TransactionsPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de Orden de Pago */}
+      <PaymentOrderModal
+        isOpen={showPaymentOrderModal}
+        onClose={() => setShowPaymentOrderModal(false)}
+        transactions={transactions}
+        accounts={accounts}
+        companies={companies as Company[]}
+        onOrderCreated={(order) => {
+          toast.success(`Orden ${order.orderNumber} generada correctamente`);
+          setSelectedIds(new Set());
+        }}
+      />
 
       <Toaster position="top-right" />
     </div>
