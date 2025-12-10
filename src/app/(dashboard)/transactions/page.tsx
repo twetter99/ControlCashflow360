@@ -25,7 +25,8 @@ import {
   RotateCcw,
   AlertCircle,
   Copy,
-  Eye
+  Eye,
+  RefreshCw
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -86,6 +87,12 @@ export default function TransactionsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
+  const [bulkUpdateFields, setBulkUpdateFields] = useState<{
+    paymentMethod: string;
+    chargeAccountId: string;
+  }>({ paymentMethod: '', chargeAccountId: '' });
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -472,6 +479,49 @@ export default function TransactionsPage() {
     setShowForm(true);
     
     toast.success('Datos copiados. Modifica lo necesario y guarda.');
+  };
+
+  // Función para aplicar cambios de pago a toda la serie
+  const handleBulkUpdateSeries = async () => {
+    if (!viewingTransaction?.recurrenceId) return;
+    
+    const fields: {
+      paymentMethod?: 'TRANSFER' | 'DIRECT_DEBIT';
+      chargeAccountId?: string;
+    } = {};
+    
+    if (bulkUpdateFields.paymentMethod) {
+      fields.paymentMethod = bulkUpdateFields.paymentMethod as 'TRANSFER' | 'DIRECT_DEBIT';
+    }
+    if (bulkUpdateFields.chargeAccountId) {
+      fields.chargeAccountId = bulkUpdateFields.chargeAccountId;
+    }
+    
+    if (Object.keys(fields).length === 0) {
+      toast.error('Selecciona al menos un campo para actualizar');
+      return;
+    }
+    
+    setIsBulkUpdating(true);
+    try {
+      const result = await transactionsApi.bulkUpdateRecurrence({
+        recurrenceId: viewingTransaction.recurrenceId,
+        fields,
+      });
+      
+      toast.success(`${result.updated} transacciones actualizadas`);
+      setShowBulkUpdateModal(false);
+      setViewingTransaction(null);
+      
+      // Recargar transacciones
+      const transactionsData = await transactionsApi.getAll();
+      setTransactions(transactionsData);
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al actualizar las transacciones');
+    } finally {
+      setIsBulkUpdating(false);
+    }
   };
 
   // Función para proceder con la edición después de elegir scope
@@ -1731,21 +1781,109 @@ export default function TransactionsPage() {
               </div>
             </div>
 
+            <div className="flex justify-between gap-3 p-4 border-t bg-gray-50">
+              <div>
+                {viewingTransaction.recurrenceId && viewingTransaction.type === 'EXPENSE' && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setBulkUpdateFields({
+                        paymentMethod: viewingTransaction.paymentMethod || '',
+                        chargeAccountId: viewingTransaction.chargeAccountId || '',
+                      });
+                      setShowBulkUpdateModal(true);
+                    }}
+                  >
+                    <RefreshCw size={16} className="mr-2" />
+                    Aplicar a toda la serie
+                  </Button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setViewingTransaction(null)}
+                >
+                  Cerrar
+                </Button>
+                <Button
+                  onClick={() => {
+                    handleEdit(viewingTransaction);
+                    setViewingTransaction(null);
+                  }}
+                >
+                  <Edit2 size={16} className="mr-2" />
+                  Editar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para aplicar cambios a toda la serie */}
+      {showBulkUpdateModal && viewingTransaction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-bold text-gray-900">Aplicar a toda la serie</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Actualiza los campos de pago en todas las transacciones de esta recurrencia
+              </p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Método de Pago
+                </label>
+                <select
+                  value={bulkUpdateFields.paymentMethod}
+                  onChange={(e) => setBulkUpdateFields(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                >
+                  <option value="">No cambiar</option>
+                  <option value="TRANSFER">Transferencia</option>
+                  <option value="DIRECT_DEBIT">Domiciliación (Recibo)</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Cuenta Bancaria de Cargo
+                </label>
+                <select
+                  value={bulkUpdateFields.chargeAccountId}
+                  onChange={(e) => setBulkUpdateFields(prev => ({ ...prev, chargeAccountId: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2"
+                >
+                  <option value="">No cambiar</option>
+                  {accounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.bankName} - {acc.alias}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                <p><strong>Nota:</strong> Esto actualizará TODAS las transacciones de esta recurrencia, tanto pasadas como futuras.</p>
+              </div>
+            </div>
+            
             <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
               <Button
                 variant="outline"
-                onClick={() => setViewingTransaction(null)}
+                onClick={() => setShowBulkUpdateModal(false)}
+                disabled={isBulkUpdating}
               >
-                Cerrar
+                Cancelar
               </Button>
               <Button
-                onClick={() => {
-                  handleEdit(viewingTransaction);
-                  setViewingTransaction(null);
-                }}
+                onClick={handleBulkUpdateSeries}
+                disabled={isBulkUpdating || (!bulkUpdateFields.paymentMethod && !bulkUpdateFields.chargeAccountId)}
               >
-                <Edit2 size={16} className="mr-2" />
-                Editar
+                {isBulkUpdating ? 'Actualizando...' : 'Aplicar cambios'}
               </Button>
             </div>
           </div>

@@ -424,6 +424,29 @@ export const transactionsApi = {
       method: 'POST',
     });
   },
+
+  /**
+   * Actualizar en lote todas las transacciones de una recurrencia
+   */
+  async bulkUpdateRecurrence(data: {
+    recurrenceId: string;
+    fields: {
+      paymentMethod?: 'TRANSFER' | 'DIRECT_DEBIT';
+      chargeAccountId?: string;
+      supplierBankAccount?: string;
+      supplierInvoiceNumber?: string;
+    };
+  }): Promise<{
+    message: string;
+    updated: number;
+    recurrenceId: string;
+    fieldsUpdated: string[];
+  }> {
+    return apiRequest('/api/migrations/bulk-update-recurrence', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
 };
 
 // ============================================
