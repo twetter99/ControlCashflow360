@@ -1872,7 +1872,16 @@ export default function TransactionsPage() {
                 </label>
                 <select
                   value={bulkUpdateFields.paymentMethod}
-                  onChange={(e) => setBulkUpdateFields(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  onChange={(e) => {
+                    const newMethod = e.target.value;
+                    // Si cambia a domiciliación, limpiar el IBAN del proveedor
+                    if (newMethod === 'DIRECT_DEBIT') {
+                      setBulkUpdateFields(prev => ({ ...prev, paymentMethod: newMethod, supplierBankAccount: '' }));
+                      setIsBulkIBANValid(true);
+                    } else {
+                      setBulkUpdateFields(prev => ({ ...prev, paymentMethod: newMethod }));
+                    }
+                  }}
                   className="w-full border rounded-lg px-3 py-2"
                 >
                   <option value="">No cambiar</option>
@@ -1887,7 +1896,22 @@ export default function TransactionsPage() {
                 </label>
                 <select
                   value={bulkUpdateFields.chargeAccountId}
-                  onChange={(e) => setBulkUpdateFields(prev => ({ ...prev, chargeAccountId: e.target.value }))}
+                  onChange={(e) => {
+                    const accountId = e.target.value;
+                    const selectedAccount = accounts.find(acc => acc.id === accountId);
+                    setBulkUpdateFields(prev => ({ 
+                      ...prev, 
+                      chargeAccountId: accountId,
+                      // Si es domiciliación, autocompletar el IBAN con el de la cuenta seleccionada
+                      ...(bulkUpdateFields.paymentMethod === 'DIRECT_DEBIT' && selectedAccount ? {
+                        supplierBankAccount: selectedAccount.accountNumber || ''
+                      } : {})
+                    }));
+                    // Marcar IBAN como válido si es de nuestra cuenta
+                    if (bulkUpdateFields.paymentMethod === 'DIRECT_DEBIT' && selectedAccount) {
+                      setIsBulkIBANValid(true);
+                    }
+                  }}
                   className="w-full border rounded-lg px-3 py-2"
                 >
                   <option value="">No cambiar</option>
@@ -1901,19 +1925,35 @@ export default function TransactionsPage() {
                 </select>
               </div>
 
-              <IBANInput
-                label="IBAN del Proveedor/Acreedor"
-                value={bulkUpdateFields.supplierBankAccount}
-                onChange={(value, isValid) => {
-                  setBulkUpdateFields(prev => ({ ...prev, supplierBankAccount: value }));
-                  setIsBulkIBANValid(isValid);
-                }}
-                suggestions={supplierIBANSuggestions}
-                showInternationalOption={true}
-                isInternational={isBulkIBANInternational}
-                onInternationalChange={setIsBulkIBANInternational}
-                helpText="Cuenta bancaria donde se realiza el pago al proveedor"
-              />
+              {/* Solo mostrar campo IBAN si es transferencia */}
+              {bulkUpdateFields.paymentMethod !== 'DIRECT_DEBIT' && (
+                <IBANInput
+                  label="IBAN del Proveedor/Acreedor"
+                  value={bulkUpdateFields.supplierBankAccount}
+                  onChange={(value, isValid) => {
+                    setBulkUpdateFields(prev => ({ ...prev, supplierBankAccount: value }));
+                    setIsBulkIBANValid(isValid);
+                  }}
+                  suggestions={supplierIBANSuggestions}
+                  showInternationalOption={true}
+                  isInternational={isBulkIBANInternational}
+                  onInternationalChange={setIsBulkIBANInternational}
+                  helpText="Cuenta bancaria donde se realiza el pago al proveedor"
+                />
+              )}
+
+              {/* Mostrar IBAN de nuestra cuenta si es domiciliación */}
+              {bulkUpdateFields.paymentMethod === 'DIRECT_DEBIT' && bulkUpdateFields.chargeAccountId && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <p className="text-xs text-gray-500 mb-1">IBAN donde se cargará el recibo</p>
+                  <p className="font-mono text-sm text-gray-700">
+                    {(() => {
+                      const acc = accounts.find(a => a.id === bulkUpdateFields.chargeAccountId);
+                      return acc?.accountNumber ? acc.accountNumber.replace(/(.{4})/g, '$1 ').trim() : 'No disponible';
+                    })()}
+                  </p>
+                </div>
+              )}
               
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
                 <p><strong>Nota:</strong> Esto actualizará TODAS las transacciones de esta recurrencia, tanto pasadas como futuras.</p>
