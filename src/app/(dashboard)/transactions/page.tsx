@@ -24,7 +24,8 @@ import {
   FileCheck,
   RotateCcw,
   AlertCircle,
-  Copy
+  Copy,
+  Eye
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -84,6 +85,7 @@ export default function TransactionsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -996,6 +998,13 @@ export default function TransactionsPage() {
                   <td className="py-4">
                     <div className="flex items-center justify-center space-x-2">
                       <button
+                        onClick={() => setViewingTransaction(tx)}
+                        className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                        title="Ver detalles"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
                         onClick={() => handleEdit(tx)}
                         className="p-2 text-gray-400 hover:text-primary-600 transition-colors"
                         title="Editar"
@@ -1530,6 +1539,213 @@ export default function TransactionsPage() {
               </Button>
               <Button onClick={confirmRecurrenceEditOption}>
                 Continuar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de visualización de detalles */}
+      {viewingTransaction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900">Detalles del Movimiento</h3>
+                <button
+                  onClick={() => setViewingTransaction(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Cabecera con tipo y estado */}
+              <div className="flex items-center justify-between">
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                  viewingTransaction.type === 'INCOME' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  {viewingTransaction.type === 'INCOME' ? (
+                    <><TrendingUp size={14} className="mr-1" /> Ingreso</>
+                  ) : (
+                    <><TrendingDown size={14} className="mr-1" /> Gasto</>
+                  )}
+                </span>
+                {getStatusBadge(viewingTransaction.status)}
+              </div>
+
+              {/* Importe destacado */}
+              <div className="text-center py-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500 mb-1">Importe</p>
+                <p className={`text-3xl font-bold ${
+                  viewingTransaction.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {viewingTransaction.type === 'INCOME' ? '+' : '-'}{formatCurrency(viewingTransaction.amount)}
+                </p>
+              </div>
+
+              {/* Información principal */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">Descripción</p>
+                  <p className="font-medium">{viewingTransaction.description || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Tercero</p>
+                  <p className="font-medium">{viewingTransaction.thirdPartyName || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Categoría</p>
+                  <p className="font-medium">{viewingTransaction.category || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Fecha de Vencimiento</p>
+                  <p className="font-medium">{formatDate(viewingTransaction.dueDate)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Empresa</p>
+                  <p className="font-medium">{companies.find(c => c.id === viewingTransaction.companyId)?.name || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Cuenta/Banco</p>
+                  <p className="font-medium">
+                    {accounts.find(a => a.id === viewingTransaction.chargeAccountId)?.bankName || '-'}
+                    {accounts.find(a => a.id === viewingTransaction.chargeAccountId)?.alias && 
+                      ` - ${accounts.find(a => a.id === viewingTransaction.chargeAccountId)?.alias}`
+                    }
+                  </p>
+                </div>
+              </div>
+
+              {/* Recurrencia */}
+              {viewingTransaction.recurrence && viewingTransaction.recurrence !== 'NONE' && (
+                <div className="p-4 bg-blue-50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Repeat size={16} className="text-blue-600" />
+                    <p className="font-medium text-blue-800">Movimiento Recurrente</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-blue-600">Frecuencia</p>
+                      <p className="font-medium text-blue-900">
+                        {viewingTransaction.recurrence === 'DAILY' && 'Diario'}
+                        {viewingTransaction.recurrence === 'WEEKLY' && 'Semanal'}
+                        {viewingTransaction.recurrence === 'BIWEEKLY' && 'Quincenal'}
+                        {viewingTransaction.recurrence === 'MONTHLY' && 'Mensual'}
+                        {viewingTransaction.recurrence === 'QUARTERLY' && 'Trimestral'}
+                        {viewingTransaction.recurrence === 'YEARLY' && 'Anual'}
+                      </p>
+                    </div>
+                    {viewingTransaction.recurrenceId && (
+                      <div>
+                        <p className="text-blue-600">Recurrencia</p>
+                        <p className="font-medium text-blue-900">Generado automáticamente</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Certeza */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Target size={16} className="text-gray-400" />
+                  <span className="text-sm text-gray-500">Certeza:</span>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    viewingTransaction.certainty === 'HIGH' ? 'bg-green-100 text-green-800' :
+                    viewingTransaction.certainty === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {viewingTransaction.certainty === 'HIGH' && 'Alta'}
+                    {viewingTransaction.certainty === 'MEDIUM' && 'Media'}
+                    {viewingTransaction.certainty === 'LOW' && 'Baja'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Información adicional para gastos */}
+              {viewingTransaction.type === 'EXPENSE' && (
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium text-gray-700 mb-3">Información Adicional (Gasto)</p>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500">Factura Proveedor</p>
+                      <p className="font-medium">{viewingTransaction.supplierInvoiceNumber || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Cuenta Bancaria Proveedor</p>
+                      <p className="font-medium">{viewingTransaction.supplierBankAccount || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Método de Pago</p>
+                      <p className="font-medium">
+                        {viewingTransaction.paymentMethod === 'TRANSFER' && 'Transferencia'}
+                        {viewingTransaction.paymentMethod === 'DIRECT_DEBIT' && 'Domiciliación'}
+                        {!viewingTransaction.paymentMethod && '-'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Información adicional para ingresos */}
+              {viewingTransaction.type === 'INCOME' && (
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium text-gray-700 mb-3">Información Adicional (Ingreso)</p>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-500">Nº Factura</p>
+                      <p className="font-medium">{viewingTransaction.invoiceNumber || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Capa de Ingreso</p>
+                      <p className="font-medium">Capa {getIncomeLayer(viewingTransaction)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Notas */}
+              {viewingTransaction.notes && (
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Notas</p>
+                  <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">{viewingTransaction.notes}</p>
+                </div>
+              )}
+
+              {/* Metadatos */}
+              <div className="border-t pt-4 text-xs text-gray-400">
+                <div className="flex justify-between">
+                  <span>ID: {viewingTransaction.id}</span>
+                  {viewingTransaction.recurrenceId && (
+                    <span>Recurrence ID: {viewingTransaction.recurrenceId}</span>
+                  )}
+                </div>
+                {viewingTransaction.paidDate && (
+                  <p className="mt-1">Pagado: {formatDate(viewingTransaction.paidDate)}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
+              <Button
+                variant="outline"
+                onClick={() => setViewingTransaction(null)}
+              >
+                Cerrar
+              </Button>
+              <Button
+                onClick={() => {
+                  handleEdit(viewingTransaction);
+                  setViewingTransaction(null);
+                }}
+              >
+                <Edit2 size={16} className="mr-2" />
+                Editar
               </Button>
             </div>
           </div>
