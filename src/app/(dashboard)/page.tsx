@@ -516,18 +516,19 @@ export default function DashboardPage() {
   const upcomingTransactions = getTransactionsInDays(upcomingDaysFilter)
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-  // Pagos elegibles para orden de pago (gastos por transferencia pendientes)
+  // Pagos elegibles para orden de pago (gastos pendientes que NO son domiciliados)
+  // Si no tiene paymentMethod definido, se asume que es transferencia
   const eligiblePayments = upcomingTransactions.filter(tx => 
     tx.type === 'EXPENSE' && 
     tx.status === 'PENDING' &&
-    tx.paymentMethod === 'TRANSFER'
+    tx.paymentMethod !== 'DIRECT_DEBIT'
   );
 
   // Verificar si una transacción es elegible para orden de pago
   const isEligibleForPaymentOrder = (tx: Transaction): boolean => {
     return tx.type === 'EXPENSE' && 
            tx.status === 'PENDING' &&
-           tx.paymentMethod === 'TRANSFER';
+           tx.paymentMethod !== 'DIRECT_DEBIT';
   };
 
   // Toggle selección individual
