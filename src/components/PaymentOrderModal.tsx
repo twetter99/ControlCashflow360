@@ -189,6 +189,12 @@ export function PaymentOrderModal({
   // Verificar si hay pagos sin cuenta asignada
   const paymentsWithoutAccount = selectedTransactions.filter(tx => !getSelectedAccountId(tx.id, tx));
 
+  // Verificar pagos sin IBAN (usando IBANs editados)
+  const paymentsWithoutIban = selectedTransactions.filter(tx => {
+    const iban = getCurrentIban(tx);
+    return !iban || iban.length < 15;
+  });
+
   // Verificar pagos con saldo insuficiente
   const paymentsWithInsufficientBalance = selectedTransactions.filter(tx => {
     const accountId = getSelectedAccountId(tx.id, tx);
@@ -218,8 +224,11 @@ export function PaymentOrderModal({
       return;
     }
 
-    // Validar que todos tengan IBAN del proveedor
-    const withoutIban = selectedTransactions.filter(tx => !tx.supplierBankAccount);
+    // Validar que todos tengan IBAN del proveedor (usando IBANs editados)
+    const withoutIban = selectedTransactions.filter(tx => {
+      const iban = getCurrentIban(tx);
+      return !iban || iban.length < 15;
+    });
     if (withoutIban.length > 0) {
       toast.error(`${withoutIban.length} pago(s) no tienen IBAN del proveedor`);
       return;
@@ -236,7 +245,7 @@ export function PaymentOrderModal({
         description: tx.description || '',
         thirdPartyName: tx.thirdPartyName || '',
         supplierInvoiceNumber: tx.supplierInvoiceNumber || '',
-        supplierBankAccount: tx.supplierBankAccount || '',
+        supplierBankAccount: getCurrentIban(tx),
         amount: tx.amount,
         dueDate: tx.dueDate,
         chargeAccountId: getSelectedAccountId(tx.id, tx),
@@ -436,8 +445,21 @@ export function PaymentOrderModal({
           ) : (
             <>
               {/* Avisos de validación */}
-              {(paymentsWithoutAccount.length > 0 || paymentsWithInsufficientBalance.length > 0) && (
+              {(paymentsWithoutAccount.length > 0 || paymentsWithoutIban.length > 0 || paymentsWithInsufficientBalance.length > 0) && (
                 <div className="mb-4 space-y-2">
+                  {paymentsWithoutIban.length > 0 && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                      <AlertTriangle size={18} className="text-red-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-red-800">
+                          {paymentsWithoutIban.length} pago(s) no tienen IBAN del proveedor
+                        </p>
+                        <p className="text-xs text-red-600 mt-1">
+                          Introduce el IBAN del proveedor para cada pago antes de continuar
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   {paymentsWithoutAccount.length > 0 && (
                     <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
                       <AlertTriangle size={18} className="text-red-600 mt-0.5 flex-shrink-0" />
