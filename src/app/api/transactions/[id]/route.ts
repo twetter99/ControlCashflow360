@@ -38,6 +38,14 @@ function mapToTransaction(id: string, data: FirebaseFirestore.DocumentData): Tra
     thirdPartyId: data.thirdPartyId || undefined,
     thirdPartyName: data.thirdPartyName || '',
     notes: data.notes || '',
+    // Campos de factura
+    invoiceNumber: data.invoiceNumber || '',
+    supplierInvoiceNumber: data.supplierInvoiceNumber || '',
+    // Campos de pago
+    supplierBankAccount: data.supplierBankAccount || '',
+    paymentMethod: data.paymentMethod || undefined,
+    chargeAccountId: data.chargeAccountId || undefined,
+    // Recurrencia
     recurrence: data.recurrence || 'NONE',
     certainty: data.certainty || 'HIGH',
     recurrenceId: data.recurrenceId || null,
@@ -159,6 +167,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (body.invoiceNumber !== undefined) updateData.invoiceNumber = body.invoiceNumber;
     if (body.recurrence !== undefined) updateData.recurrence = body.recurrence;
     if (body.certainty !== undefined) updateData.certainty = body.certainty;
+    // Campos de pago de gastos
+    if (body.supplierInvoiceNumber !== undefined) updateData.supplierInvoiceNumber = body.supplierInvoiceNumber;
+    if (body.supplierBankAccount !== undefined) updateData.supplierBankAccount = body.supplierBankAccount;
+    if (body.paymentMethod !== undefined) updateData.paymentMethod = body.paymentMethod;
+    if (body.chargeAccountId !== undefined) updateData.chargeAccountId = body.chargeAccountId;
 
     // Manejar cambios de balance si cambia el status
     const oldStatus = existingData.status;

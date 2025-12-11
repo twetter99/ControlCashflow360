@@ -205,6 +205,11 @@ export const UpdateTransactionSchema = z.object({
   invoiceNumber: sanitizedString(50).pipe(z.string().max(50)).optional(),
   recurrence: RecurrenceFrequencySchema.optional(),
   certainty: CertaintyLevelSchema.optional(),
+  // Campos para gastos de proveedores
+  supplierInvoiceNumber: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  supplierBankAccount: sanitizedString(50).pipe(z.string().max(50)).optional(),
+  paymentMethod: PaymentMethodSchema.optional(),
+  chargeAccountId: z.string().optional().nullable(),
 }).refine(data => Object.keys(data).length > 0, {
   message: 'Debe proporcionar al menos un campo para actualizar',
 });
