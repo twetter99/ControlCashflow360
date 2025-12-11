@@ -2,6 +2,49 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 
+// Clave para guardar última actividad en localStorage
+const LAST_ACTIVITY_KEY = 'winfin_last_activity';
+const SESSION_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos en milisegundos
+
+/**
+ * Guarda el timestamp de última actividad en localStorage
+ */
+export function saveLastActivity(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+  }
+}
+
+/**
+ * Obtiene el timestamp de última actividad desde localStorage
+ */
+export function getLastActivity(): number | null {
+  if (typeof window === 'undefined') return null;
+  const stored = localStorage.getItem(LAST_ACTIVITY_KEY);
+  return stored ? parseInt(stored, 10) : null;
+}
+
+/**
+ * Limpia el registro de última actividad
+ */
+export function clearLastActivity(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(LAST_ACTIVITY_KEY);
+  }
+}
+
+/**
+ * Verifica si la sesión ha expirado basándose en la última actividad guardada
+ * @returns true si la sesión expiró (más de 15 minutos de inactividad)
+ */
+export function isSessionExpired(): boolean {
+  const lastActivity = getLastActivity();
+  if (!lastActivity) return false; // No hay registro, es una sesión nueva
+  
+  const elapsed = Date.now() - lastActivity;
+  return elapsed > SESSION_TIMEOUT_MS;
+}
+
 export interface IdleTimeoutConfig {
   /** Tiempo de inactividad antes de mostrar aviso (en minutos). Default: 10 */
   idleTime?: number;
@@ -82,6 +125,9 @@ export function useIdleTimeout({
     if (!enabled) return;
     
     lastActivityRef.current = Date.now();
+    // Guardar en localStorage para persistir entre recargas/cierres
+    saveLastActivity();
+    
     clearAllTimers();
     setShowWarning(false);
     setRemainingSeconds(warningTime);

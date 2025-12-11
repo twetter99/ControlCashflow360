@@ -6,7 +6,7 @@ import { onAuthChange, signIn, signOut, signInWithGoogle } from '@/lib/firebase/
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { UserProfile, UserRole } from '@/types';
-import { useIdleTimeout } from '@/hooks/useIdleTimeout';
+import { useIdleTimeout, isSessionExpired, clearLastActivity, saveLastActivity } from '@/hooks/useIdleTimeout';
 import { IdleWarningModal } from '@/components/auth/IdleWarningModal';
 
 // Configuración de timeout de sesión (en minutos)
@@ -41,6 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Función de logout (definida antes del hook para evitar dependencias circulares)
   const performLogout = useCallback(async (isTimeout = false) => {
     try {
+      // Limpiar registro de última actividad
+      clearLastActivity();
       await signOut();
       if (isTimeout) {
         setSessionExpired(true);
@@ -147,6 +149,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null);
       
       if (firebaseUser) {
+        // Verificar si la sesión expiró por inactividad (localStorage)
+        if (isSessionExpired()) {
+          console.log('[Auth] Sesión expirada por inactividad - cerrando sesión');
+          clearLastActivity();
+          await signOut();
+          setSessionExpired(true);
+          setUser(null);
+          setUserProfile(null);
+          setLoading(false);
+          return;
+        }
+        
+        // Sesión válida - guardar actividad inicial
+        saveLastActivity();
+        
         setUser(firebaseUser);
         const profile = await loadUserProfile(firebaseUser);
         setUserProfile(profile);
@@ -168,6 +185,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     try {
       await signIn(email, password);
+      // Inicializar registro de actividad al hacer login
+      saveLastActivity();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al iniciar sesión';
       setError(message);
@@ -183,6 +202,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     try {
       await signInWithGoogle();
+      // Inicializar registro de actividad al hacer login
+      saveLastActivity();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al iniciar sesión con Google';
       setError(message);

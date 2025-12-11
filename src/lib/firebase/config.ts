@@ -1,5 +1,5 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
+import { getAuth, Auth, browserSessionPersistence, setPersistence } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 
 // Configuración de Firebase usando variables de entorno
@@ -39,6 +39,17 @@ if (isFirebaseConfigured) {
   app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
   auth = getAuth(app);
   db = getFirestore(app);
+  
+  // Configurar persistencia de sesión (se cierra al cerrar navegador)
+  if (typeof window !== 'undefined' && auth) {
+    setPersistence(auth, browserSessionPersistence)
+      .then(() => {
+        console.log('[Firebase Client] ✅ Persistencia configurada: SESSION (se cierra al cerrar navegador)');
+      })
+      .catch((error) => {
+        console.error('[Firebase Client] Error configurando persistencia:', error);
+      });
+  }
   
   if (typeof window !== 'undefined') {
     console.log('[Firebase Client] ✅ Firebase inicializado correctamente');
