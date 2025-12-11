@@ -22,7 +22,9 @@ import {
   Plus,
   X,
   Calendar,
-  Edit2
+  Edit2,
+  Filter,
+  Building2
 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 
@@ -80,6 +82,10 @@ export default function MorningCheckPage() {
     notes: '',
   });
   const [isSavingHold, setIsSavingHold] = useState(false);
+
+  // Filtros locales
+  const [filterCompanyId, setFilterCompanyId] = useState<string>('');
+  const [filterBankName, setFilterBankName] = useState<string>('');
 
   // Cargar datos via API
   useEffect(() => {
@@ -157,18 +163,23 @@ export default function MorningCheckPage() {
     loadData();
   }, [user]);
 
-  // Filtrar por empresa seleccionada
-  const filteredAccounts = !selectedCompanyId
-    ? accounts
-    : accounts.filter(acc => acc.companyId === selectedCompanyId);
+  // Filtrar por empresa seleccionada (global o local) y banco
+  const effectiveCompanyId = filterCompanyId || selectedCompanyId;
   
-  const filteredCreditLines = !selectedCompanyId
-    ? creditLines
-    : creditLines.filter(cl => cl.companyId === selectedCompanyId);
+  // Obtener lista única de bancos para el filtro
+  const uniqueBanks = Array.from(new Set(accounts.map(acc => acc.bankName))).sort();
   
-  const filteredCreditCards = !selectedCompanyId
-    ? creditCards
-    : creditCards.filter(cc => cc.companyId === selectedCompanyId);
+  const filteredAccounts = accounts
+    .filter(acc => !effectiveCompanyId || acc.companyId === effectiveCompanyId)
+    .filter(acc => !filterBankName || acc.bankName === filterBankName);
+  
+  const filteredCreditLines = creditLines
+    .filter(cl => !effectiveCompanyId || cl.companyId === effectiveCompanyId)
+    .filter(cl => !filterBankName || cl.bankName === filterBankName);
+  
+  const filteredCreditCards = creditCards
+    .filter(cc => !effectiveCompanyId || cc.companyId === effectiveCompanyId)
+    .filter(cc => !filterBankName || cc.bankName === filterBankName);
 
   // Helper para obtener nombre de empresa
   const getCompanyName = (companyId: string) => {
@@ -550,6 +561,75 @@ export default function MorningCheckPage() {
             </span>
           )}
         </button>
+      </div>
+
+      {/* Filtros locales */}
+      <div className="flex flex-wrap items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="flex items-center gap-2 text-gray-600">
+          <Filter size={16} />
+          <span className="text-sm font-medium">Filtrar:</span>
+        </div>
+        
+        {/* Filtro por empresa */}
+        <div className="flex items-center gap-2">
+          <Building2 size={14} className="text-gray-400" />
+          <select
+            value={filterCompanyId}
+            onChange={(e) => setFilterCompanyId(e.target.value)}
+            className="text-sm border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          >
+            <option value="">Todas las empresas</option>
+            {companies.map((company) => (
+              <option key={company.id} value={company.id}>
+                {company.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        {/* Filtro por banco */}
+        <div className="flex items-center gap-2">
+          <Wallet size={14} className="text-gray-400" />
+          <select
+            value={filterBankName}
+            onChange={(e) => setFilterBankName(e.target.value)}
+            className="text-sm border rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          >
+            <option value="">Todos los bancos</option>
+            {uniqueBanks.map((bank) => (
+              <option key={bank} value={bank}>
+                {bank}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Limpiar filtros */}
+        {(filterCompanyId || filterBankName) && (
+          <button
+            onClick={() => {
+              setFilterCompanyId('');
+              setFilterBankName('');
+            }}
+            className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+          >
+            <X size={14} />
+            Limpiar filtros
+          </button>
+        )}
+        
+        {/* Indicador de resultados */}
+        <div className="ml-auto text-sm text-gray-500">
+          {activeTab === 'accounts' && (
+            <span>{filteredAccounts.length} cuenta{filteredAccounts.length !== 1 ? 's' : ''}</span>
+          )}
+          {activeTab === 'creditLines' && (
+            <span>{filteredCreditLines.length} póliza{filteredCreditLines.length !== 1 ? 's' : ''}</span>
+          )}
+          {activeTab === 'creditCards' && (
+            <span>{filteredCreditCards.length} tarjeta{filteredCreditCards.length !== 1 ? 's' : ''}</span>
+          )}
+        </div>
       </div>
 
       {/* Tabla de Cuentas Bancarias */}

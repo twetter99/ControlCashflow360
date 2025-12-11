@@ -4,8 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi, creditCardsApi } from '@/lib/api-client';
-import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard } from '@/types';
+import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi, creditCardsApi, companiesApi } from '@/lib/api-client';
+import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard, Company } from '@/types';
+import { PaymentOrderModal } from '@/components/PaymentOrderModal';
+import toast, { Toaster } from 'react-hot-toast';
 import { CreditCard as CreditCardIcon } from 'lucide-react';
 import { 
   Wallet, 
@@ -22,7 +24,9 @@ import {
   Check,
   X,
   ExternalLink,
-  Lock
+  Lock,
+  ClipboardList,
+  Send
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Link from 'next/link';
@@ -92,6 +96,7 @@ export default function DashboardPage() {
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   
   // Objetivo mensual de ingresos (Sistema 3 Capas)
   const [monthlyIncomeGoal, setMonthlyIncomeGoal] = useState<number>(0);
@@ -101,6 +106,10 @@ export default function DashboardPage() {
   
   // Período seleccionado para próximos vencimientos
   const [upcomingDaysFilter, setUpcomingDaysFilter] = useState<7 | 15 | 21 | 30>(7);
+  
+  // Selección de pagos para órdenes de pago desde dashboard
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
+  const [showPaymentOrderModal, setShowPaymentOrderModal] = useState(false);
   
   // Modal de detalle de transacciones
   const [detailModal, setDetailModal] = useState<TransactionDetailModal>({
@@ -153,18 +162,20 @@ export default function DashboardPage() {
         }
         
         // Luego cargar todos los datos
-        const [accountsData, creditLinesData, creditCardsData, transactionsData, holdsData] = await Promise.all([
+        const [accountsData, creditLinesData, creditCardsData, transactionsData, holdsData, companiesData] = await Promise.all([
           accountsApi.getAll(),
           creditLinesApi.getAll(),
           creditCardsApi.getAll(),
           transactionsApi.getAll(),
-          accountHoldsApi.getAll(undefined, 'ACTIVE')
+          accountHoldsApi.getAll(undefined, 'ACTIVE'),
+          companiesApi.getAll()
         ]);
         setAccounts(accountsData);
         setCreditLines(creditLinesData);
         setCreditCards(creditCardsData);
         setTransactions(transactionsData);
         setAccountHolds(holdsData);
+        setCompanies(companiesData);
       } catch (error) {
         console.error('Error cargando datos del dashboard:', error);
       } finally {
@@ -495,6 +506,47 @@ export default function DashboardPage() {
   // Próximos vencimientos (filtrado dinámico)
   const upcomingTransactions = getTransactionsInDays(upcomingDaysFilter)
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+  // Pagos elegibles para orden de pago (gastos por transferencia pendientes)
+  const eligiblePayments = upcomingTransactions.filter(tx => 
+    tx.type === 'EXPENSE' && 
+    tx.status === 'PENDING' &&
+    tx.paymentMethod === 'TRANSFER'
+  );
+
+  // Verificar si una transacción es elegible para orden de pago
+  const isEligibleForPaymentOrder = (tx: Transaction): boolean => {
+    return tx.type === 'EXPENSE' && 
+           tx.status === 'PENDING' &&
+           tx.paymentMethod === 'TRANSFER';
+  };
+
+  // Toggle selección individual
+  const togglePaymentSelection = (txId: string) => {
+    setSelectedPaymentIds(prev => {
+      const next = new Set(prev);
+      if (next.has(txId)) {
+        next.delete(txId);
+      } else {
+        next.add(txId);
+      }
+      return next;
+    });
+  };
+
+  // Seleccionar/deseleccionar todos los elegibles
+  const toggleAllPayments = () => {
+    if (selectedPaymentIds.size === eligiblePayments.length) {
+      setSelectedPaymentIds(new Set());
+    } else {
+      setSelectedPaymentIds(new Set(eligiblePayments.map(tx => tx.id)));
+    }
+  };
+
+  // Calcular total seleccionado
+  const selectedPaymentsTotal = upcomingTransactions
+    .filter(tx => selectedPaymentIds.has(tx.id))
+    .reduce((sum, tx) => sum + tx.amount, 0);
 
   // Alertas
   const alerts: { id: string; type: string; message: string; severity: string }[] = [];
@@ -1120,13 +1172,58 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="p-6">
+        {/* Barra de acciones cuando hay selecciones */}
+        {selectedPaymentIds.size > 0 && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-blue-700 font-medium">
+                {selectedPaymentIds.size} pago{selectedPaymentIds.size > 1 ? 's' : ''} seleccionado{selectedPaymentIds.size > 1 ? 's' : ''}
+              </span>
+              <span className="text-blue-600 font-semibold">
+                Total: {formatCurrency(selectedPaymentsTotal)}
+              </span>
+              <button
+                onClick={() => setSelectedPaymentIds(new Set())}
+                className="text-sm text-blue-600 hover:text-blue-800 underline"
+              >
+                Deseleccionar todo
+              </button>
+            </div>
+            <button
+              onClick={() => setShowPaymentOrderModal(true)}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <ClipboardList size={16} />
+              Generar Orden de Pago
+            </button>
+          </div>
+        )}
+
         {upcomingTransactions.length === 0 ? (
           <p className="text-gray-500 text-center py-8">No hay vencimientos en los próximos {upcomingDaysFilter} días</p>
         ) : (
           <div className="overflow-x-auto">
+            {/* Info de pagos elegibles */}
+            {eligiblePayments.length > 0 && selectedPaymentIds.size === 0 && (
+              <div className="mb-3 text-sm text-gray-500 flex items-center gap-2">
+                <Send size={14} className="text-blue-500" />
+                <span>{eligiblePayments.length} pago{eligiblePayments.length > 1 ? 's' : ''} por transferencia disponible{eligiblePayments.length > 1 ? 's' : ''} para orden de pago</span>
+              </div>
+            )}
             <table className="w-full">
               <thead>
                 <tr className="text-left text-sm text-gray-500 border-b">
+                  {eligiblePayments.length > 0 && (
+                    <th className="pb-3 pr-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedPaymentIds.size === eligiblePayments.length && eligiblePayments.length > 0}
+                        onChange={toggleAllPayments}
+                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        title="Seleccionar todos los pagos por transferencia"
+                      />
+                    </th>
+                  )}
                   <th className="pb-3 font-medium">Concepto</th>
                   <th className="pb-3 font-medium">Tipo</th>
                   <th className="pb-3 font-medium">Certeza</th>
@@ -1135,51 +1232,89 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {upcomingTransactions.map((tx) => (
-                  <tr key={tx.id} className="border-b last:border-0">
-                    <td className="py-4">
-                      <p className="font-medium text-gray-900">{tx.description || tx.category}</p>
-                      {tx.thirdPartyName && (
-                        <p className="text-sm text-gray-500">{tx.thirdPartyName}</p>
+                {upcomingTransactions.map((tx) => {
+                  const isEligible = isEligibleForPaymentOrder(tx);
+                  const isSelected = selectedPaymentIds.has(tx.id);
+                  
+                  return (
+                    <tr 
+                      key={tx.id} 
+                      className={`border-b last:border-0 ${isSelected ? 'bg-blue-50' : ''} ${isEligible ? 'hover:bg-gray-50 cursor-pointer' : ''}`}
+                      onClick={isEligible ? () => togglePaymentSelection(tx.id) : undefined}
+                    >
+                      {eligiblePayments.length > 0 && (
+                        <td className="py-4 pr-3" onClick={(e) => e.stopPropagation()}>
+                          {isEligible ? (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => togglePaymentSelection(tx.id)}
+                              className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                            />
+                          ) : (
+                            <span className="w-4 h-4 inline-block" title={
+                              tx.type === 'INCOME' ? 'Los cobros no requieren orden de pago' :
+                              tx.paymentMethod === 'DIRECT_DEBIT' ? 'Pago domiciliado (automático)' :
+                              'No elegible para orden de pago'
+                            }></span>
+                          )}
+                        </td>
                       )}
-                    </td>
-                    <td className="py-4">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        tx.type === 'INCOME' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                      }`}>
-                        {tx.type === 'INCOME' ? (
-                          <>
-                            <TrendingUp size={12} className="mr-1" />
-                            Cobro
-                          </>
-                        ) : (
-                          <>
-                            <TrendingDown size={12} className="mr-1" />
-                            Pago
-                          </>
+                      <td className="py-4">
+                        <p className="font-medium text-gray-900">{tx.description || tx.category}</p>
+                        {tx.thirdPartyName && (
+                          <p className="text-sm text-gray-500">{tx.thirdPartyName}</p>
                         )}
-                      </span>
-                    </td>
-                    <td className="py-4">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        (tx.certainty === 'HIGH' || !tx.certainty) ? 'bg-green-100 text-green-800' :
-                        tx.certainty === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
+                      </td>
+                      <td className="py-4">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          tx.type === 'INCOME' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {tx.type === 'INCOME' ? (
+                            <>
+                              <TrendingUp size={12} className="mr-1" />
+                              Cobro
+                            </>
+                          ) : (
+                            <>
+                              <TrendingDown size={12} className="mr-1" />
+                              Pago
+                            </>
+                          )}
+                        </span>
+                        {tx.type === 'EXPENSE' && tx.paymentMethod && (
+                          <span className={`ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-xs ${
+                            tx.paymentMethod === 'TRANSFER' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {tx.paymentMethod === 'TRANSFER' ? (
+                              <><Send size={10} className="mr-0.5" /> Transf.</>
+                            ) : (
+                              '🔄 Dom.'
+                            )}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          (tx.certainty === 'HIGH' || !tx.certainty) ? 'bg-green-100 text-green-800' :
+                          tx.certainty === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {(tx.certainty === 'HIGH' || !tx.certainty) ? '🟢 Alta' :
+                           tx.certainty === 'MEDIUM' ? '🟡 Media' : '🔴 Baja'}
+                        </span>
+                      </td>
+                      <td className="py-4 text-gray-500">
+                        {formatDate(tx.dueDate)}
+                      </td>
+                      <td className={`py-4 text-right font-semibold ${
+                        tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {(tx.certainty === 'HIGH' || !tx.certainty) ? '🟢 Alta' :
-                         tx.certainty === 'MEDIUM' ? '🟡 Media' : '🔴 Baja'}
-                      </span>
-                    </td>
-                    <td className="py-4 text-gray-500">
-                      {formatDate(tx.dueDate)}
-                    </td>
-                    <td className={`py-4 text-right font-semibold ${
-                      tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
-                    </td>
-                  </tr>
-                ))}
+                        {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1355,6 +1490,21 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de Orden de Pago */}
+      <PaymentOrderModal
+        isOpen={showPaymentOrderModal}
+        onClose={() => setShowPaymentOrderModal(false)}
+        transactions={transactions}
+        accounts={accounts}
+        companies={companies}
+        onOrderCreated={(order) => {
+          toast.success(`Orden ${order.orderNumber} generada correctamente`);
+          setSelectedPaymentIds(new Set());
+        }}
+      />
+
+      <Toaster position="top-right" />
     </div>
   );
 }
