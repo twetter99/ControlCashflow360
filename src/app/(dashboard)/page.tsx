@@ -1525,11 +1525,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Modal de Orden de Pago */}
+      {/* Modal de Orden de Pago - Solo con las transacciones seleccionadas */}
       <PaymentOrderModal
         isOpen={showPaymentOrderModal}
         onClose={() => setShowPaymentOrderModal(false)}
-        transactions={transactions}
+        transactions={transactions.filter(tx => selectedPaymentIds.has(tx.id))}
         accounts={accounts}
         companies={companies}
         onOrderCreated={(order) => {
