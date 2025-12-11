@@ -455,13 +455,22 @@ export default function DashboardPage() {
   const dailyBurn = monthlyExpenses / 30;
   const runway = dailyBurn > 0 ? Math.round(totalAvailableBalance / dailyBurn) : 999;
 
-  // Función para filtrar transacciones por días
+  // Función para filtrar transacciones por días (incluye vencidas no pagadas)
   const getTransactionsInDays = (days: number) => {
     return pendingTransactions.filter(tx => {
       const daysUntil = Math.ceil((new Date(tx.dueDate).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      return daysUntil >= 0 && daysUntil <= days;
+      // Incluir: vencidas (daysUntil < 0) + próximos X días (0 <= daysUntil <= days)
+      return daysUntil <= days;
     });
   };
+
+  // Contar transacciones vencidas (para mostrar alerta)
+  const overdueTransactions = pendingTransactions.filter(tx => {
+    const daysUntil = Math.ceil((new Date(tx.dueDate).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return daysUntil < 0;
+  });
+  const overdueCount = overdueTransactions.length;
+  const overdueTotal = overdueTransactions.reduce((sum, tx) => sum + (tx.type === 'EXPENSE' ? tx.amount : 0), 0);
 
   // Estadísticas por período para los tabs
   const upcomingStats = {
@@ -1159,7 +1168,13 @@ export default function DashboardPage() {
               Ver todos →
             </Link>
           </div>
-          <div className="flex gap-4 text-sm">
+          <div className="flex gap-4 text-sm flex-wrap">
+            {overdueCount > 0 && (
+              <span className="text-red-700 font-semibold flex items-center gap-1 bg-red-50 px-2 py-0.5 rounded">
+                <AlertTriangle size={14} />
+                {overdueCount} vencido{overdueCount > 1 ? 's' : ''}: -{formatCurrency(overdueTotal)}
+              </span>
+            )}
             <span className="text-green-600 font-medium">
               Cobros: +{formatCurrency(upcomingStats[upcomingDaysFilter].incomes)}
             </span>
@@ -1304,8 +1319,26 @@ export default function DashboardPage() {
                            tx.certainty === 'MEDIUM' ? '🟡 Media' : '🔴 Baja'}
                         </span>
                       </td>
-                      <td className="py-4 text-gray-500">
-                        {formatDate(tx.dueDate)}
+                      <td className="py-4">
+                        {(() => {
+                          const dueDate = new Date(tx.dueDate);
+                          const daysUntil = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                          const isOverdue = daysUntil < 0;
+                          
+                          return (
+                            <div>
+                              <span className={isOverdue ? 'text-red-600 font-medium' : 'text-gray-500'}>
+                                {formatDate(tx.dueDate)}
+                              </span>
+                              {isOverdue && (
+                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                  <AlertTriangle size={10} className="mr-0.5" />
+                                  Vencido
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className={`py-4 text-right font-semibold ${
                         tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
