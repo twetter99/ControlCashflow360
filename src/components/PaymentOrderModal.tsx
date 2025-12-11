@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui';
+import { Button, IBANInput } from '@/components/ui';
 import { Transaction, Account, Company, PaymentOrder, PaymentOrderItem, AccountHold } from '@/types';
-import { paymentOrdersApi } from '@/lib/api-client';
-import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
+import { paymentOrdersApi, transactionsApi } from '@/lib/api-client';
+import { formatCurrency, formatDate, formatIBAN, cleanIBAN } from '@/lib/utils';
 import { 
   X, 
   FileText, 
@@ -18,7 +18,8 @@ import {
   Hash,
   User,
   MessageSquare,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -49,6 +50,52 @@ export function PaymentOrderModal({
   
   // Estado para la cuenta seleccionada de cada transacción
   const [accountSelections, setAccountSelections] = useState<Record<string, string>>({});
+  
+  // Estado para IBANs editados localmente (antes de guardar)
+  const [editedIbans, setEditedIbans] = useState<Record<string, string>>({});
+  // Estado para saber qué IBANs se están guardando
+  const [savingIbans, setSavingIbans] = useState<Set<string>>(new Set());
+
+  // Obtener el IBAN actual de una transacción (editado o original)
+  const getCurrentIban = (tx: Transaction): string => {
+    return editedIbans[tx.id] !== undefined ? editedIbans[tx.id] : (tx.supplierBankAccount || '');
+  };
+
+  // Obtener sugerencias de IBANs del mismo tercero
+  const getIbanSuggestionsForThirdParty = (thirdPartyId: string | undefined): string[] => {
+    if (!thirdPartyId) return [];
+    const ibans = new Set<string>();
+    transactions.forEach(tx => {
+      if (tx.thirdPartyId === thirdPartyId && tx.supplierBankAccount) {
+        ibans.add(cleanIBAN(tx.supplierBankAccount));
+      }
+    });
+    return Array.from(ibans);
+  };
+
+  // Guardar IBAN inmediatamente cuando es válido
+  const handleIbanChange = async (txId: string, value: string, isValid: boolean) => {
+    // Actualizar estado local
+    setEditedIbans(prev => ({ ...prev, [txId]: value }));
+    
+    // Si es válido y tiene contenido, guardar
+    if (isValid && value.length >= 15) {
+      setSavingIbans(prev => new Set(prev).add(txId));
+      try {
+        await transactionsApi.update(txId, { supplierBankAccount: value });
+        toast.success('IBAN guardado', { duration: 1500, id: `iban-${txId}` });
+      } catch (error) {
+        console.error('Error guardando IBAN:', error);
+        toast.error('Error al guardar IBAN');
+      } finally {
+        setSavingIbans(prev => {
+          const next = new Set(prev);
+          next.delete(txId);
+          return next;
+        });
+      }
+    }
+  };
 
   // Filtrar solo gastos pendientes que NO son domiciliados
   const eligibleTransactions = transactions.filter(tx => 
@@ -443,7 +490,10 @@ export function PaymentOrderModal({
                   <tbody>
                     {eligibleTransactions.map(tx => {
                       const isSelected = selectedTxIds.has(tx.id);
-                      const hasIban = !!tx.supplierBankAccount;
+                      const currentIban = getCurrentIban(tx);
+                      const hasIban = !!currentIban && currentIban.length >= 15;
+                      const isSavingIban = savingIbans.has(tx.id);
+                      const ibanSuggestions = getIbanSuggestionsForThirdParty(tx.thirdPartyId);
                       const availableAccounts = getAccountsForTransaction(tx);
                       const selectedAccountId = accountSelections[tx.id] || '';
                       const selectedAccount = accounts.find(a => a.id === selectedAccountId);
@@ -470,15 +520,23 @@ export function PaymentOrderModal({
                               <p className="text-xs text-gray-400">Fact: {tx.supplierInvoiceNumber}</p>
                             )}
                           </td>
-                          <td className="p-3">
-                            {hasIban ? (
-                              <span className="font-mono text-xs">{formatIBAN(tx.supplierBankAccount || '')}</span>
-                            ) : (
-                              <span className="text-red-600 text-xs flex items-center gap-1">
-                                <AlertCircle size={12} />
-                                Sin IBAN
-                              </span>
-                            )}
+                          <td className="p-3 min-w-[220px]">
+                            <div className="relative">
+                              <IBANInput
+                                value={currentIban}
+                                onChange={(value, isValid) => handleIbanChange(tx.id, value, isValid)}
+                                label=""
+                                placeholder="ES00 0000 0000 00..."
+                                suggestions={ibanSuggestions}
+                                showInternationalOption={false}
+                                className="text-xs"
+                              />
+                              {isSavingIban && (
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                  <Loader2 size={14} className="animate-spin text-primary-500" />
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className="p-3">
                             <div className="space-y-1">
