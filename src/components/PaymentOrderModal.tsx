@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui';
-import { Transaction, Account, Company, PaymentOrder, PaymentOrderItem } from '@/types';
+import { Transaction, Account, Company, PaymentOrder, PaymentOrderItem, AccountHold } from '@/types';
 import { paymentOrdersApi } from '@/lib/api-client';
 import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
 import { 
@@ -17,7 +17,8 @@ import {
   Calendar,
   Hash,
   User,
-  MessageSquare
+  MessageSquare,
+  AlertTriangle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -27,6 +28,7 @@ interface PaymentOrderModalProps {
   transactions: Transaction[];
   accounts: Account[];
   companies: Company[];
+  accountHolds?: AccountHold[];
   onOrderCreated?: (order: PaymentOrder) => void;
 }
 
@@ -36,26 +38,61 @@ export function PaymentOrderModal({
   transactions,
   accounts,
   companies,
+  accountHolds = [],
   onOrderCreated,
 }: PaymentOrderModalProps) {
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
-  const [defaultAccountId, setDefaultAccountId] = useState<string>('');
   const [notesForFinance, setNotesForFinance] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [createdOrder, setCreatedOrder] = useState<PaymentOrder | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+  
+  // Estado para la cuenta seleccionada de cada transacción
+  const [accountSelections, setAccountSelections] = useState<Record<string, string>>({});
 
-  // Filtrar solo gastos por transferencia pendientes
+  // Filtrar solo gastos pendientes que NO son domiciliados
   const eligibleTransactions = transactions.filter(tx => 
     tx.type === 'EXPENSE' && 
     tx.status === 'PENDING' &&
-    tx.paymentMethod === 'TRANSFER'
+    tx.paymentMethod !== 'DIRECT_DEBIT'
   );
 
-  // Inicializar selección con todas las transacciones elegibles
+  // Calcular retenciones activas por cuenta
+  const getAccountHoldsTotal = (accountId: string): number => {
+    return accountHolds
+      .filter(h => h.accountId === accountId && h.status === 'ACTIVE')
+      .reduce((sum, h) => sum + h.amount, 0);
+  };
+
+  // Calcular saldo disponible de una cuenta (saldo - retenciones)
+  const getAvailableBalance = (account: Account): number => {
+    const holdsTotal = getAccountHoldsTotal(account.id);
+    return account.currentBalance - holdsTotal;
+  };
+
+  // Obtener cuentas disponibles para una transacción (misma empresa)
+  const getAccountsForTransaction = (tx: Transaction): Account[] => {
+    return accounts.filter(acc => acc.companyId === tx.companyId);
+  };
+
+  // Obtener la cuenta seleccionada para una transacción
+  const getSelectedAccountId = (txId: string, tx: Transaction): string => {
+    // Primero la selección manual, luego la que tenía la transacción
+    return accountSelections[txId] || tx.chargeAccountId || '';
+  };
+
+  // Inicializar selección con todas las transacciones elegibles y sus cuentas
   useEffect(() => {
     if (isOpen && eligibleTransactions.length > 0) {
       setSelectedTxIds(new Set(eligibleTransactions.map(tx => tx.id)));
+      // Inicializar accountSelections con las cuentas que ya tenían las transacciones
+      const initialSelections: Record<string, string> = {};
+      eligibleTransactions.forEach(tx => {
+        if (tx.chargeAccountId) {
+          initialSelections[tx.id] = tx.chargeAccountId;
+        }
+      });
+      setAccountSelections(initialSelections);
     }
   }, [isOpen, eligibleTransactions.length]);
 
@@ -63,7 +100,7 @@ export function PaymentOrderModal({
   useEffect(() => {
     if (!isOpen) {
       setSelectedTxIds(new Set());
-      setDefaultAccountId('');
+      setAccountSelections({});
       setNotesForFinance('');
       setCreatedOrder(null);
     }
@@ -92,15 +129,28 @@ export function PaymentOrderModal({
   const selectedTransactions = eligibleTransactions.filter(tx => selectedTxIds.has(tx.id));
   const totalAmount = selectedTransactions.reduce((sum, tx) => sum + tx.amount, 0);
 
-  // Agrupar por cuenta de cargo
+  // Agrupar por cuenta de cargo (usando selecciones actuales)
   const groupedByAccount = selectedTransactions.reduce((acc, tx) => {
-    const accountId = tx.chargeAccountId || defaultAccountId || 'sin-cuenta';
+    const accountId = getSelectedAccountId(tx.id, tx) || 'sin-cuenta';
     if (!acc[accountId]) {
       acc[accountId] = [];
     }
     acc[accountId].push(tx);
     return acc;
   }, {} as Record<string, Transaction[]>);
+
+  // Verificar si hay pagos sin cuenta asignada
+  const paymentsWithoutAccount = selectedTransactions.filter(tx => !getSelectedAccountId(tx.id, tx));
+
+  // Verificar pagos con saldo insuficiente
+  const paymentsWithInsufficientBalance = selectedTransactions.filter(tx => {
+    const accountId = getSelectedAccountId(tx.id, tx);
+    if (!accountId) return false;
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return false;
+    const available = getAvailableBalance(account);
+    return available < tx.amount;
+  });
 
   const getAccountInfo = (accountId: string) => {
     const account = accounts.find(a => a.id === accountId);
@@ -142,14 +192,14 @@ export function PaymentOrderModal({
         supplierBankAccount: tx.supplierBankAccount || '',
         amount: tx.amount,
         dueDate: tx.dueDate,
-        chargeAccountId: tx.chargeAccountId || defaultAccountId || undefined,
+        chargeAccountId: getSelectedAccountId(tx.id, tx),
         notes: '',
       }));
 
       const order = await paymentOrdersApi.create({
         title: `Orden de Pago - ${monthNames[now.getMonth()]} ${now.getFullYear()}`,
         description: `${selectedTransactions.length} pagos por transferencia`,
-        defaultChargeAccountId: defaultAccountId || undefined,
+        defaultChargeAccountId: undefined,
         items,
         transactionIds: selectedTransactions.map(tx => tx.id),
         notesForFinance,
@@ -338,28 +388,37 @@ export function PaymentOrderModal({
             </div>
           ) : (
             <>
-              {/* Cuenta por defecto */}
-              <div className="mb-4 p-4 bg-blue-50 rounded-lg">
-                <label className="block text-sm font-medium text-blue-800 mb-2 flex items-center gap-2">
-                  <CreditCard size={16} />
-                  Cuenta de cargo por defecto (para pagos sin cuenta asignada)
-                </label>
-                <select
-                  value={defaultAccountId}
-                  onChange={(e) => setDefaultAccountId(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 bg-white"
-                >
-                  <option value="">Seleccionar cuenta...</option>
-                  {accounts.map(acc => {
-                    const company = companies.find(c => c.id === acc.companyId);
-                    return (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.bankName} - {acc.alias} ({company?.name}) | Saldo: {formatCurrency(acc.currentBalance)}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
+              {/* Avisos de validación */}
+              {(paymentsWithoutAccount.length > 0 || paymentsWithInsufficientBalance.length > 0) && (
+                <div className="mb-4 space-y-2">
+                  {paymentsWithoutAccount.length > 0 && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                      <AlertTriangle size={18} className="text-red-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-red-800">
+                          {paymentsWithoutAccount.length} pago(s) sin cuenta de cargo asignada
+                        </p>
+                        <p className="text-xs text-red-600 mt-1">
+                          Selecciona una cuenta de cargo para cada pago antes de continuar
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {paymentsWithInsufficientBalance.length > 0 && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                      <AlertTriangle size={18} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-800">
+                          {paymentsWithInsufficientBalance.length} pago(s) con saldo insuficiente
+                        </p>
+                        <p className="text-xs text-amber-600 mt-1">
+                          Las cuentas seleccionadas no tienen saldo disponible suficiente (considerando retenciones)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Tabla de pagos */}
               <div className="border rounded-lg overflow-hidden mb-4">
@@ -384,8 +443,12 @@ export function PaymentOrderModal({
                   <tbody>
                     {eligibleTransactions.map(tx => {
                       const isSelected = selectedTxIds.has(tx.id);
-                      const chargeAccount = accounts.find(a => a.id === tx.chargeAccountId);
                       const hasIban = !!tx.supplierBankAccount;
+                      const availableAccounts = getAccountsForTransaction(tx);
+                      const selectedAccountId = accountSelections[tx.id] || '';
+                      const selectedAccount = accounts.find(a => a.id === selectedAccountId);
+                      const availableBalance = selectedAccount ? getAvailableBalance(selectedAccount) : 0;
+                      const hasInsufficientBalance = selectedAccount && availableBalance < tx.amount;
                       
                       return (
                         <tr 
@@ -418,11 +481,35 @@ export function PaymentOrderModal({
                             )}
                           </td>
                           <td className="p-3">
-                            {chargeAccount ? (
-                              <span className="text-xs">{chargeAccount.bankName} - {chargeAccount.alias}</span>
-                            ) : (
-                              <span className="text-gray-400 text-xs">Por defecto</span>
-                            )}
+                            <div className="space-y-1">
+                              <select
+                                value={selectedAccountId}
+                                onChange={(e) => setAccountSelections(prev => ({
+                                  ...prev,
+                                  [tx.id]: e.target.value
+                                }))}
+                                className={`w-full text-xs border rounded px-2 py-1.5 ${
+                                  !selectedAccountId ? 'border-red-300 bg-red-50' : 
+                                  hasInsufficientBalance ? 'border-amber-300 bg-amber-50' : 'border-gray-300'
+                                }`}
+                              >
+                                <option value="">Seleccionar cuenta...</option>
+                                {availableAccounts.map(acc => {
+                                  const accBalance = getAvailableBalance(acc);
+                                  return (
+                                    <option key={acc.id} value={acc.id}>
+                                      {acc.bankName} - {acc.alias} | Disp: {formatCurrency(accBalance)}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              {hasInsufficientBalance && (
+                                <p className="text-xs text-amber-600 flex items-center gap-1">
+                                  <AlertTriangle size={10} />
+                                  Saldo insuficiente (Disp: {formatCurrency(availableBalance)})
+                                </p>
+                              )}
+                            </div>
                           </td>
                           <td className="p-3 text-xs">{formatDate(tx.dueDate)}</td>
                           <td className="p-3 text-right font-semibold text-red-600">

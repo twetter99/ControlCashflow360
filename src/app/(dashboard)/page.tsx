@@ -1532,6 +1532,7 @@ export default function DashboardPage() {
         transactions={transactions.filter(tx => selectedPaymentIds.has(tx.id))}
         accounts={accounts}
         companies={companies}
+        accountHolds={accountHolds}
         onOrderCreated={(order) => {
           toast.success(`Orden ${order.orderNumber} generada correctamente`);
           setSelectedPaymentIds(new Set());

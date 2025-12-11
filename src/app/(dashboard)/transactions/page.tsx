@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card, Input, ThirdPartyAutocomplete, CurrencyInput, IBANInput } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { transactionsApi, companiesApi, accountsApi, recurrenceVersionsApi } from '@/lib/api-client';
-import { Transaction, Company, Account, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer, RecurrenceUpdateScope, PaymentOrder } from '@/types';
+import { transactionsApi, companiesApi, accountsApi, recurrenceVersionsApi, accountHoldsApi } from '@/lib/api-client';
+import { Transaction, Company, Account, AccountHold, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer, RecurrenceUpdateScope, PaymentOrder } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -68,6 +68,7 @@ export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<TransactionStatus | 'ALL'>('ALL');
   const [filterType, setFilterType] = useState<TransactionType | 'ALL'>('ALL');
@@ -132,14 +133,16 @@ export default function TransactionsPage() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [transactionsData, companiesData, accountsData] = await Promise.all([
+        const [transactionsData, companiesData, accountsData, holdsData] = await Promise.all([
           transactionsApi.getAll(),
           companiesApi.getAll(),
-          accountsApi.getAll()
+          accountsApi.getAll(),
+          accountHoldsApi.getAll()
         ]);
         setTransactions(transactionsData);
         setCompanies(companiesData.map((c: Company) => ({ id: c.id, name: c.name })));
         setAccounts(accountsData);
+        setAccountHolds(holdsData);
       } catch (error: unknown) {
         console.error('Error cargando datos:', error);
         toast.error('Error al cargar los movimientos');
@@ -1998,6 +2001,7 @@ export default function TransactionsPage() {
         transactions={transactions}
         accounts={accounts}
         companies={companies as Company[]}
+        accountHolds={accountHolds}
         onOrderCreated={(order) => {
           toast.success(`Orden ${order.orderNumber} generada correctamente`);
           setSelectedIds(new Set());
