@@ -97,11 +97,12 @@ export function PaymentOrderModal({
     }
   };
 
-  // Filtrar solo gastos pendientes que NO son domiciliados
+  // Filtrar solo gastos pendientes que NO son domiciliados y NO tienen orden de pago
   const eligibleTransactions = transactions.filter(tx => 
     tx.type === 'EXPENSE' && 
     tx.status === 'PENDING' &&
-    tx.paymentMethod !== 'DIRECT_DEBIT'
+    tx.paymentMethod !== 'DIRECT_DEBIT' &&
+    !tx.paymentOrderId  // Excluir los que ya están en una orden
   );
 
   // Calcular retenciones activas por cuenta

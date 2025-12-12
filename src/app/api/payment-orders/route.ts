@@ -132,6 +132,20 @@ export async function POST(request: NextRequest) {
 
     const docRef = await db.collection('payment_orders').add(orderData);
 
+    // Actualizar las transacciones con referencia a esta orden
+    if (transactionIds && transactionIds.length > 0) {
+      const batch = db.batch();
+      for (const txId of transactionIds) {
+        const txRef = db.collection('transactions').doc(txId);
+        batch.update(txRef, {
+          paymentOrderId: docRef.id,
+          paymentOrderNumber: orderNumber,
+          updatedAt: now,
+        });
+      }
+      await batch.commit();
+    }
+
     return NextResponse.json({
       success: true,
       data: {

@@ -295,6 +295,9 @@ export interface Transaction {
   // Campos para préstamos
   loanId?: string;                 // ID del préstamo asociado (si es cuota de préstamo)
   loanInstallmentNumber?: number;  // Número de cuota del préstamo
+  // Campos para órdenes de pago
+  paymentOrderId?: string;         // ID de la orden donde está incluida
+  paymentOrderNumber?: string;     // "OP-2025-0005" para mostrar en UI
   // Campos para recurrencias
   recurrence: RecurrenceFrequency;
   certainty: CertaintyLevel;

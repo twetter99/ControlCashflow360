@@ -93,6 +93,42 @@ export async function PATCH(
         updateData.executedBy = userId;
         updateData.executedByName = executedByName || 'Usuario';
         updateData.executedAt = new Date();
+        
+        // Marcar todas las transacciones de esta orden como COMPLETED
+        const items = data?.items || [];
+        if (items.length > 0) {
+          const batch = db.batch();
+          for (const item of items) {
+            if (item.transactionId) {
+              const txRef = db.collection('transactions').doc(item.transactionId);
+              batch.update(txRef, {
+                status: 'COMPLETED',
+                paidDate: new Date(),
+                updatedAt: new Date(),
+              });
+            }
+          }
+          await batch.commit();
+        }
+      }
+      
+      // Si se cancela la orden, limpiar las referencias de las transacciones
+      if (status === 'CANCELLED') {
+        const items = data?.items || [];
+        if (items.length > 0) {
+          const batch = db.batch();
+          for (const item of items) {
+            if (item.transactionId) {
+              const txRef = db.collection('transactions').doc(item.transactionId);
+              batch.update(txRef, {
+                paymentOrderId: null,
+                paymentOrderNumber: null,
+                updatedAt: new Date(),
+              });
+            }
+          }
+          await batch.commit();
+        }
       }
     }
 
@@ -221,6 +257,23 @@ export async function DELETE(
         { success: false, error: 'No se pueden eliminar órdenes ya ejecutadas' },
         { status: 400 }
       );
+    }
+
+    // Limpiar las referencias de las transacciones antes de eliminar
+    const items = data?.items || [];
+    if (items.length > 0) {
+      const batch = db.batch();
+      for (const item of items) {
+        if (item.transactionId) {
+          const txRef = db.collection('transactions').doc(item.transactionId);
+          batch.update(txRef, {
+            paymentOrderId: null,
+            paymentOrderNumber: null,
+            updatedAt: new Date(),
+          });
+        }
+      }
+      await batch.commit();
     }
 
     await db.collection('payment_orders').doc(id).delete();

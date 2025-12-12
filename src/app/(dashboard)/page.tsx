@@ -516,19 +516,21 @@ export default function DashboardPage() {
   const upcomingTransactions = getTransactionsInDays(upcomingDaysFilter)
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-  // Pagos elegibles para orden de pago (gastos pendientes que NO son domiciliados)
+  // Pagos elegibles para orden de pago (gastos pendientes que NO son domiciliados y NO tienen orden)
   // Si no tiene paymentMethod definido, se asume que es transferencia
   const eligiblePayments = upcomingTransactions.filter(tx => 
     tx.type === 'EXPENSE' && 
     tx.status === 'PENDING' &&
-    tx.paymentMethod !== 'DIRECT_DEBIT'
+    tx.paymentMethod !== 'DIRECT_DEBIT' &&
+    !tx.paymentOrderId  // Excluir los que ya están en una orden
   );
 
   // Verificar si una transacción es elegible para orden de pago
   const isEligibleForPaymentOrder = (tx: Transaction): boolean => {
     return tx.type === 'EXPENSE' && 
            tx.status === 'PENDING' &&
-           tx.paymentMethod !== 'DIRECT_DEBIT';
+           tx.paymentMethod !== 'DIRECT_DEBIT' &&
+           !tx.paymentOrderId;  // Excluir los que ya están en una orden
   };
 
   // Toggle selección individual
@@ -1280,6 +1282,17 @@ export default function DashboardPage() {
                         <p className="font-medium text-gray-900">{tx.description || tx.category}</p>
                         {tx.thirdPartyName && (
                           <p className="text-sm text-gray-500">{tx.thirdPartyName}</p>
+                        )}
+                        {tx.paymentOrderNumber && (
+                          <a 
+                            href="/payment-orders"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium hover:bg-blue-200 transition-colors"
+                            title="Ver orden de pago"
+                          >
+                            <ClipboardList size={10} />
+                            En orden {tx.paymentOrderNumber}
+                          </a>
                         )}
                       </td>
                       <td className="py-4">
