@@ -1528,12 +1528,11 @@ export default function DashboardPage() {
             need.estimatedBalance = need.availableBalance - need.totalNeeded;
           });
           
-          // Filtrar solo bancos con movimientos o déficit
+          // Filtrar solo bancos con pagos pendientes (domiciliados u órdenes de pago)
           const banksWithActivity = Array.from(bankNeeds.values())
             .filter(need => 
               need.totalNeeded > 0 || 
-              need.pendingTransfers.amount > 0 ||
-              need.currentBalance > 0
+              need.pendingTransfers.amount > 0
             )
             .sort((a, b) => a.estimatedBalance - b.estimatedBalance); // Déficits primero
           
