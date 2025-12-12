@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Card } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
-import { paymentOrdersApi } from '@/lib/api-client';
-import { PaymentOrder, PaymentOrderStatus } from '@/types';
+import { paymentOrdersApi, accountsApi, companiesApi } from '@/lib/api-client';
+import { PaymentOrder, PaymentOrderStatus, Account, Company } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   FileText, 
@@ -20,9 +20,14 @@ import {
   RefreshCw,
   X,
   Trash2,
-  Edit2
+  Edit2,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import XLSX from 'xlsx-js-style';
 
 const STATUS_CONFIG: Record<PaymentOrderStatus, { label: string; color: string; icon: React.ReactNode }> = {
   DRAFT: { label: 'Borrador', color: 'bg-gray-100 text-gray-700', icon: <FileText size={14} /> },
@@ -34,6 +39,8 @@ const STATUS_CONFIG: Record<PaymentOrderStatus, { label: string; color: string; 
 export default function PaymentOrdersPage() {
   const { user } = useAuth();
   const [orders, setOrders] = useState<PaymentOrder[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<PaymentOrderStatus | 'ALL'>('ALL');
   const [viewingOrder, setViewingOrder] = useState<PaymentOrder | null>(null);
@@ -42,7 +49,21 @@ export default function PaymentOrdersPage() {
   useEffect(() => {
     if (!user) return;
     loadOrders();
+    loadAccountsAndCompanies();
   }, [user]);
+
+  const loadAccountsAndCompanies = async () => {
+    try {
+      const [accountsData, companiesData] = await Promise.all([
+        accountsApi.getAll(),
+        companiesApi.getAll()
+      ]);
+      setAccounts(accountsData);
+      setCompanies(companiesData);
+    } catch (error) {
+      console.error('Error cargando cuentas/empresas:', error);
+    }
+  };
 
   const loadOrders = async () => {
     try {
@@ -100,6 +121,317 @@ export default function PaymentOrdersPage() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  // Exportar a PDF
+  const handleExportPDF = (order: PaymentOrder) => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Título
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ORDEN DE PAGO', 14, 20);
+    
+    // Número de orden
+    doc.setFontSize(14);
+    doc.setTextColor(41, 98, 255);
+    doc.text(order.orderNumber, 14, 28);
+    
+    // Fecha
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Fecha: ${formatDate(order.createdAt)}`, pageWidth - 14, 20, { align: 'right' });
+    
+    // Info general
+    doc.setTextColor(0);
+    doc.text(`Autorizado por: ${order.authorizedByName}`, 14, 40);
+    doc.text(`Total: ${formatCurrency(order.totalAmount)}`, 14, 46);
+    doc.text(`Operaciones: ${order.itemCount}`, 14, 52);
+    
+    if (order.notesForFinance) {
+      doc.setFontSize(9);
+      doc.setTextColor(100);
+      doc.text(`Notas: ${order.notesForFinance}`, 14, 60);
+    }
+    
+    // Agrupar items por cuenta de cargo
+    const groupedItems = order.items.reduce((acc, item) => {
+      const accountId = item.chargeAccountId || 'sin-cuenta';
+      if (!acc[accountId]) acc[accountId] = [];
+      acc[accountId].push(item);
+      return acc;
+    }, {} as Record<string, typeof order.items>);
+    
+    let startY = order.notesForFinance ? 70 : 62;
+    
+    Object.entries(groupedItems).forEach(([accountId, items]) => {
+      const account = accounts.find(a => a.id === accountId);
+      const company = account ? companies.find(c => c.id === account.companyId) : null;
+      
+      // Cabecera del grupo
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 58, 95);
+      const bankName = account ? `${account.bankName} - ${account.alias}` : 'Sin cuenta asignada';
+      const companyName = company?.name || '';
+      doc.text(`${bankName} | ${companyName}`, 14, startY);
+      
+      if (account?.accountNumber) {
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`IBAN: ${formatIBAN(account.accountNumber)}`, 14, startY + 5);
+        startY += 5;
+      }
+      
+      // Tabla de items
+      const tableData = items.map(item => [
+        item.description,
+        item.thirdPartyName,
+        formatIBAN(item.supplierBankAccount),
+        formatCurrency(item.amount)
+      ]);
+      
+      autoTable(doc, {
+        startY: startY + 3,
+        head: [['Concepto', 'Beneficiario', 'IBAN Destino', 'Importe']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [30, 58, 95], fontSize: 9 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: {
+          0: { cellWidth: 50 },
+          1: { cellWidth: 45 },
+          2: { cellWidth: 55, font: 'courier', fontSize: 7 },
+          3: { cellWidth: 30, halign: 'right' }
+        },
+        margin: { left: 14, right: 14 },
+        didDrawPage: (data) => {
+          startY = data.cursor?.y || startY;
+        }
+      });
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      startY = (doc as any).lastAutoTable.finalY + 10;
+    });
+    
+    // Total general
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0);
+    doc.text(`TOTAL: ${formatCurrency(order.totalAmount)}`, pageWidth - 14, startY, { align: 'right' });
+    
+    // Pie
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(150);
+    doc.text('Documento generado por WinFin Tesorería', 14, doc.internal.pageSize.getHeight() - 10);
+    
+    doc.save(`${order.orderNumber}.pdf`);
+    toast.success('PDF descargado');
+  };
+
+  // Exportar a Excel con estilos profesionales
+  const handleExportExcel = (order: PaymentOrder) => {
+    // Estilos comunes
+    const headerStyle = {
+      font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+      fill: { fgColor: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } }
+      }
+    };
+    
+    const titleStyle = {
+      font: { bold: true, sz: 14, color: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'left' }
+    };
+    
+    const labelStyle = {
+      font: { bold: true, sz: 10, color: { rgb: '555555' } },
+      alignment: { horizontal: 'left' }
+    };
+    
+    const valueStyle = {
+      font: { sz: 10 },
+      alignment: { horizontal: 'left' }
+    };
+    
+    const cellStyle = {
+      font: { sz: 10 },
+      alignment: { vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+        bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+        left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+        right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+      }
+    };
+    
+    const cellStyleAlt = {
+      ...cellStyle,
+      fill: { fgColor: { rgb: 'F5F5F5' } }
+    };
+    
+    const currencyStyle = {
+      ...cellStyle,
+      alignment: { horizontal: 'right', vertical: 'center' },
+      numFmt: '#,##0.00 €'
+    };
+    
+    const currencyStyleAlt = {
+      ...currencyStyle,
+      fill: { fgColor: { rgb: 'F5F5F5' } }
+    };
+    
+    const totalLabelStyle = {
+      font: { bold: true, sz: 11 },
+      alignment: { horizontal: 'right' },
+      border: {
+        top: { style: 'medium', color: { rgb: '1E3A5F' } },
+        bottom: { style: 'medium', color: { rgb: '1E3A5F' } }
+      }
+    };
+    
+    const totalValueStyle = {
+      font: { bold: true, sz: 11, color: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'right' },
+      numFmt: '#,##0.00 €',
+      border: {
+        top: { style: 'medium', color: { rgb: '1E3A5F' } },
+        bottom: { style: 'medium', color: { rgb: '1E3A5F' } }
+      }
+    };
+    
+    // Construir datos con estilos
+    type CellValue = { v: string | number; t?: string; s?: Record<string, unknown> };
+    const data: CellValue[][] = [];
+    
+    // Cabecera del documento
+    data.push([
+      { v: 'ORDEN DE PAGO', s: titleStyle },
+      { v: order.orderNumber, s: { font: { bold: true, sz: 14 } } },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Fecha:', s: labelStyle },
+      { v: formatDate(order.createdAt), s: valueStyle },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Autorizado por:', s: labelStyle },
+      { v: order.authorizedByName || '', s: valueStyle },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Total:', s: labelStyle },
+      { v: order.totalAmount, t: 'n', s: { ...valueStyle, numFmt: '#,##0.00 €', font: { bold: true, sz: 11 } } },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Operaciones:', s: labelStyle },
+      { v: order.itemCount, s: valueStyle },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    if (order.notesForFinance) {
+      data.push([
+        { v: 'Notas:', s: labelStyle },
+        { v: order.notesForFinance, s: valueStyle },
+        { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+      ]);
+    }
+    
+    // Fila vacía
+    data.push([{ v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }]);
+    
+    // Cabecera de tabla
+    const headerRowIndex = data.length;
+    data.push([
+      { v: 'Banco Cargo', s: headerStyle },
+      { v: 'IBAN Origen', s: headerStyle },
+      { v: 'Empresa', s: headerStyle },
+      { v: 'Beneficiario', s: headerStyle },
+      { v: 'Nº Factura', s: headerStyle },
+      { v: 'Concepto', s: headerStyle },
+      { v: 'IBAN Destino', s: headerStyle },
+      { v: 'Vencimiento', s: { ...headerStyle, alignment: { horizontal: 'center', vertical: 'center' } } },
+      { v: 'Importe', s: { ...headerStyle, alignment: { horizontal: 'right', vertical: 'center' } } }
+    ]);
+    
+    // Agrupar por cuenta
+    const groupedItems = order.items.reduce((acc, item) => {
+      const accountId = item.chargeAccountId || 'sin-cuenta';
+      if (!acc[accountId]) acc[accountId] = [];
+      acc[accountId].push(item);
+      return acc;
+    }, {} as Record<string, typeof order.items>);
+    
+    // Items con filas alternadas
+    let rowIndex = 0;
+    Object.entries(groupedItems).forEach(([accountId, items]) => {
+      const account = accounts.find(a => a.id === accountId);
+      const company = account ? companies.find(c => c.id === account.companyId) : null;
+      
+      items.forEach(item => {
+        const isAlt = rowIndex % 2 === 1;
+        const style = isAlt ? cellStyleAlt : cellStyle;
+        const currStyle = isAlt ? currencyStyleAlt : currencyStyle;
+        
+        data.push([
+          { v: account ? `${account.bankName} - ${account.alias}` : 'Sin cuenta', s: style },
+          { v: account?.accountNumber ? formatIBAN(account.accountNumber) : '', s: { ...style, font: { sz: 9, name: 'Consolas' } } },
+          { v: company?.name || '', s: style },
+          { v: item.thirdPartyName, s: style },
+          { v: item.supplierInvoiceNumber || '', s: style },
+          { v: item.description, s: style },
+          { v: formatIBAN(item.supplierBankAccount), s: { ...style, font: { sz: 9, name: 'Consolas' } } },
+          { v: formatDate(item.dueDate), s: { ...style, alignment: { horizontal: 'center', vertical: 'center' } } },
+          { v: item.amount, t: 'n', s: currStyle }
+        ]);
+        rowIndex++;
+      });
+    });
+    
+    // Fila vacía antes del total
+    data.push([{ v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }]);
+    
+    // Fila de total
+    data.push([
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' },
+      { v: 'TOTAL:', s: totalLabelStyle },
+      { v: order.totalAmount, t: 'n', s: totalValueStyle }
+    ]);
+    
+    // Crear hoja
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    
+    // Ajustar ancho de columnas
+    ws['!cols'] = [
+      { wch: 28 },  // Banco Cargo
+      { wch: 32 },  // IBAN Origen
+      { wch: 22 },  // Empresa
+      { wch: 28 },  // Beneficiario
+      { wch: 14 },  // Nº Factura
+      { wch: 35 },  // Concepto
+      { wch: 32 },  // IBAN Destino
+      { wch: 14 },  // Vencimiento
+      { wch: 14 },  // Importe
+    ];
+    
+    // Altura de filas
+    ws['!rows'] = data.map((_, i) => ({ hpt: i === headerRowIndex ? 22 : 18 }));
+    
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Orden de Pago');
+    
+    // Descargar
+    XLSX.writeFile(wb, `${order.orderNumber}.xlsx`);
+    toast.success('Excel descargado');
   };
 
   // Filtrar órdenes
@@ -311,6 +643,14 @@ export default function PaymentOrdersPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => handleExportPDF(viewingOrder)} title="Descargar PDF">
+                  <Download size={16} className="mr-2" />
+                  PDF
+                </Button>
+                <Button variant="outline" onClick={() => handleExportExcel(viewingOrder)} title="Descargar Excel">
+                  <FileSpreadsheet size={16} className="mr-2" />
+                  Excel
+                </Button>
                 <Button variant="outline" onClick={handlePrint}>
                   <Printer size={16} className="mr-2" />
                   Imprimir
