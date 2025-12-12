@@ -19,9 +19,13 @@ import {
   User,
   MessageSquare,
   AlertTriangle,
-  Loader2
+  Loader2,
+  FileSpreadsheet
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 interface PaymentOrderModalProps {
   isOpen: boolean;
@@ -277,6 +281,197 @@ export function PaymentOrderModal({
     window.print();
   };
 
+  // Exportar a PDF
+  const handleExportPDF = () => {
+    if (!createdOrder) return;
+    
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Título
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ORDEN DE PAGO', 14, 20);
+    
+    // Número de orden
+    doc.setFontSize(12);
+    doc.setTextColor(0, 102, 204);
+    doc.text(createdOrder.orderNumber, 14, 28);
+    
+    // Fecha
+    doc.setTextColor(100, 100, 100);
+    doc.setFontSize(10);
+    doc.text(`Fecha: ${formatDate(createdOrder.createdAt)}`, pageWidth - 14, 20, { align: 'right' });
+    doc.text(`Autorizado por: ${createdOrder.authorizedByName}`, pageWidth - 14, 26, { align: 'right' });
+    
+    // Línea separadora
+    doc.setDrawColor(0, 0, 0);
+    doc.line(14, 32, pageWidth - 14, 32);
+    
+    // Resumen
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(11);
+    doc.text(`Total: ${formatCurrency(createdOrder.totalAmount)}`, 14, 40);
+    doc.text(`Operaciones: ${createdOrder.itemCount}`, 80, 40);
+    
+    // Notas para financiero
+    let yPos = 48;
+    if (createdOrder.notesForFinance) {
+      doc.setFontSize(9);
+      doc.setTextColor(150, 100, 0);
+      doc.text('NOTAS PARA FINANCIERO:', 14, yPos);
+      doc.setTextColor(0, 0, 0);
+      doc.text(createdOrder.notesForFinance, 14, yPos + 5);
+      yPos += 15;
+    }
+    
+    // Agrupar por cuenta
+    const groupedItems = createdOrder.items.reduce((acc, item) => {
+      const accountId = item.chargeAccountId || 'sin-cuenta';
+      if (!acc[accountId]) acc[accountId] = [];
+      acc[accountId].push(item);
+      return acc;
+    }, {} as Record<string, typeof createdOrder.items>);
+    
+    // Generar tabla por cada grupo
+    Object.entries(groupedItems).forEach(([accountId, items]) => {
+      const account = accounts.find(a => a.id === accountId);
+      const company = account ? companies.find(c => c.id === account.companyId) : null;
+      const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+      
+      // Cabecera del grupo
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 102, 204);
+      const bankInfo = account ? `${account.bankName} - ${account.alias}` : 'Sin cuenta asignada';
+      const companyInfo = company ? ` | ${company.name}` : '';
+      doc.text(`${bankInfo}${companyInfo}`, 14, yPos);
+      
+      if (account?.accountNumber) {
+        doc.setFontSize(8);
+        doc.setTextColor(100, 100, 100);
+        doc.text(`IBAN: ${formatIBAN(account.accountNumber)}`, 14, yPos + 4);
+        yPos += 4;
+      }
+      
+      yPos += 2;
+      
+      // Tabla de items
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Beneficiario', 'Concepto', 'IBAN Destino', 'Vto.', 'Importe']],
+        body: items.map(item => [
+          item.thirdPartyName + (item.supplierInvoiceNumber ? `\nFact: ${item.supplierInvoiceNumber}` : ''),
+          item.description,
+          formatIBAN(item.supplierBankAccount),
+          formatDate(item.dueDate),
+          formatCurrency(item.amount)
+        ]),
+        foot: [['', '', '', 'Subtotal:', formatCurrency(subtotal)]],
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+        footStyles: { fillColor: [250, 250, 250], textColor: [0, 0, 0], fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 35 },
+          1: { cellWidth: 40 },
+          2: { cellWidth: 50 },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 25, halign: 'right' }
+        },
+        margin: { left: 14, right: 14 }
+      });
+      
+      yPos = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    });
+    
+    // Total general
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(200, 0, 0);
+    doc.text(`TOTAL A PAGAR: ${formatCurrency(createdOrder.totalAmount)}`, pageWidth - 14, yPos, { align: 'right' });
+    
+    // Guardar
+    doc.save(`${createdOrder.orderNumber}.pdf`);
+    toast.success('PDF descargado');
+  };
+
+  // Exportar a Excel
+  const handleExportExcel = () => {
+    if (!createdOrder) return;
+    
+    // Datos para el Excel
+    const data: (string | number)[][] = [];
+    
+    // Cabecera general
+    data.push(['ORDEN DE PAGO', createdOrder.orderNumber]);
+    data.push(['Fecha', formatDate(createdOrder.createdAt)]);
+    data.push(['Autorizado por', createdOrder.authorizedByName || '']);
+    data.push(['Total', createdOrder.totalAmount]);
+    data.push(['Operaciones', createdOrder.itemCount]);
+    if (createdOrder.notesForFinance) {
+      data.push(['Notas para Financiero', createdOrder.notesForFinance]);
+    }
+    data.push([]); // Fila vacía
+    
+    // Cabecera de tabla
+    data.push(['Banco Cargo', 'IBAN Origen', 'Empresa', 'Beneficiario', 'Nº Factura', 'Concepto', 'IBAN Destino', 'Vencimiento', 'Importe']);
+    
+    // Agrupar por cuenta
+    const groupedItems = createdOrder.items.reduce((acc, item) => {
+      const accountId = item.chargeAccountId || 'sin-cuenta';
+      if (!acc[accountId]) acc[accountId] = [];
+      acc[accountId].push(item);
+      return acc;
+    }, {} as Record<string, typeof createdOrder.items>);
+    
+    // Items agrupados
+    Object.entries(groupedItems).forEach(([accountId, items]) => {
+      const account = accounts.find(a => a.id === accountId);
+      const company = account ? companies.find(c => c.id === account.companyId) : null;
+      
+      items.forEach(item => {
+        data.push([
+          account ? `${account.bankName} - ${account.alias}` : 'Sin cuenta',
+          account?.accountNumber ? formatIBAN(account.accountNumber) : '',
+          company?.name || '',
+          item.thirdPartyName,
+          item.supplierInvoiceNumber || '',
+          item.description,
+          formatIBAN(item.supplierBankAccount),
+          formatDate(item.dueDate),
+          item.amount
+        ]);
+      });
+    });
+    
+    // Fila de total
+    data.push([]);
+    data.push(['', '', '', '', '', '', '', 'TOTAL:', createdOrder.totalAmount]);
+    
+    // Crear libro de Excel
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    
+    // Ajustar ancho de columnas
+    ws['!cols'] = [
+      { wch: 25 }, // Banco
+      { wch: 28 }, // IBAN Origen
+      { wch: 20 }, // Empresa
+      { wch: 25 }, // Beneficiario
+      { wch: 15 }, // Nº Factura
+      { wch: 30 }, // Concepto
+      { wch: 28 }, // IBAN Destino
+      { wch: 12 }, // Vencimiento
+      { wch: 12 }, // Importe
+    ];
+    
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Orden de Pago');
+    
+    // Descargar
+    XLSX.writeFile(wb, `${createdOrder.orderNumber}.xlsx`);
+    toast.success('Excel descargado');
+  };
+
   if (!isOpen) return null;
 
   // Vista de orden creada (documento para imprimir/descargar)
@@ -294,6 +489,14 @@ export function PaymentOrderModal({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleExportPDF} title="Descargar PDF">
+                <Download size={16} className="mr-2" />
+                PDF
+              </Button>
+              <Button variant="outline" onClick={handleExportExcel} title="Descargar Excel">
+                <FileSpreadsheet size={16} className="mr-2" />
+                Excel
+              </Button>
               <Button variant="outline" onClick={handlePrint}>
                 <Printer size={16} className="mr-2" />
                 Imprimir
