@@ -1400,7 +1400,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Panel de Necesidades de Tesorería por Banco */}
-      <Card title="Necesidades de Tesorería por Banco (próx. 30 días)">
+      <Card title={`Necesidades de Tesorería por Banco (próx. ${upcomingDaysFilter} días)`}>
         {(() => {
           // Agrupar gastos pendientes por cuenta de cargo (chargeAccountId)
           const pendingExpenses = pendingTransactions.filter(tx => tx.type === 'EXPENSE');
@@ -1495,6 +1495,9 @@ export default function DashboardPage() {
             const dueDate = new Date(tx.dueDate);
             const daysUntil = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
             
+            // Solo procesar transacciones dentro del período seleccionado
+            if (daysUntil > upcomingDaysFilter) return;
+            
             if (tx.paymentMethod === 'DIRECT_DEBIT') {
               // Domiciliado - clasificar por período
               if (daysUntil <= 7) {
@@ -1503,20 +1506,18 @@ export default function DashboardPage() {
               } else if (daysUntil <= 15) {
                 bankNeed.directDebit15d.amount += tx.amount;
                 bankNeed.directDebit15d.transactions.push(tx);
-              } else if (daysUntil <= 30) {
+              } else if (daysUntil <= upcomingDaysFilter) {
                 bankNeed.directDebit30d.amount += tx.amount;
                 bankNeed.directDebit30d.transactions.push(tx);
               }
             } else if (tx.paymentOrderId) {
-              // Transferencia en orden de pago
+              // Transferencia en orden de pago (dentro del período)
               bankNeed.paymentOrders.amount += tx.amount;
               bankNeed.paymentOrders.transactions.push(tx);
             } else {
               // Transferencia pendiente sin orden
-              if (daysUntil <= 30) {
-                bankNeed.pendingTransfers.amount += tx.amount;
-                bankNeed.pendingTransfers.transactions.push(tx);
-              }
+              bankNeed.pendingTransfers.amount += tx.amount;
+              bankNeed.pendingTransfers.transactions.push(tx);
             }
           });
           
@@ -1608,7 +1609,7 @@ export default function DashboardPage() {
                             <div className="text-purple-600 text-xs flex items-center gap-1">
                               {expandedBankSections.has(`${need.accountId}-dd7d`) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                               <Building2 size={10} />
-                              Dom. ≤7d
+                              {upcomingDaysFilter === 7 ? 'Domiciliados' : 'Dom. ≤7d'}
                             </div>
                             <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit7d.amount)}</div>
                             <div className="text-xs text-gray-400">{need.directDebit7d.transactions.length} recibo(s)</div>
@@ -1616,8 +1617,8 @@ export default function DashboardPage() {
                         </div>
                       )}
                       
-                      {/* Domiciliados 8-15d */}
-                      {need.directDebit15d.amount > 0 && (
+                      {/* Domiciliados 8-15d - solo mostrar si período > 7 */}
+                      {upcomingDaysFilter > 7 && need.directDebit15d.amount > 0 && (
                         <div className="bg-white rounded p-2">
                           <button 
                             onClick={() => toggleBankSection(`${need.accountId}-dd15d`)}
@@ -1626,7 +1627,7 @@ export default function DashboardPage() {
                             <div className="text-purple-600 text-xs flex items-center gap-1">
                               {expandedBankSections.has(`${need.accountId}-dd15d`) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                               <Building2 size={10} />
-                              Dom. 8-15d
+                              {upcomingDaysFilter === 15 ? 'Dom. 8-15d' : 'Dom. 8-15d'}
                             </div>
                             <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit15d.amount)}</div>
                             <div className="text-xs text-gray-400">{need.directDebit15d.transactions.length} recibo(s)</div>
@@ -1634,8 +1635,8 @@ export default function DashboardPage() {
                         </div>
                       )}
                       
-                      {/* Domiciliados 16-30d */}
-                      {need.directDebit30d.amount > 0 && (
+                      {/* Domiciliados 16+ días - solo mostrar si período > 15 */}
+                      {upcomingDaysFilter > 15 && need.directDebit30d.amount > 0 && (
                         <div className="bg-white rounded p-2">
                           <button 
                             onClick={() => toggleBankSection(`${need.accountId}-dd30d`)}
@@ -1644,7 +1645,7 @@ export default function DashboardPage() {
                             <div className="text-purple-600 text-xs flex items-center gap-1">
                               {expandedBankSections.has(`${need.accountId}-dd30d`) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                               <Building2 size={10} />
-                              Dom. 16-30d
+                              {upcomingDaysFilter === 21 ? 'Dom. 16-21d' : 'Dom. 16-30d'}
                             </div>
                             <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit30d.amount)}</div>
                             <div className="text-xs text-gray-400">{need.directDebit30d.transactions.length} recibo(s)</div>
@@ -1693,7 +1694,7 @@ export default function DashboardPage() {
                     )}
                     
                     {/* Detalle expandible de domiciliados 8-15d */}
-                    {expandedBankSections.has(`${need.accountId}-dd15d`) && need.directDebit15d.transactions.length > 0 && (
+                    {upcomingDaysFilter > 7 && expandedBankSections.has(`${need.accountId}-dd15d`) && need.directDebit15d.transactions.length > 0 && (
                       <div className="mt-3 bg-purple-50 rounded-lg p-3 border border-purple-200">
                         <div className="text-xs font-semibold text-purple-700 mb-2">Domiciliados 8-15 días</div>
                         <div className="space-y-2">
@@ -1713,10 +1714,12 @@ export default function DashboardPage() {
                       </div>
                     )}
                     
-                    {/* Detalle expandible de domiciliados 16-30d */}
-                    {expandedBankSections.has(`${need.accountId}-dd30d`) && need.directDebit30d.transactions.length > 0 && (
+                    {/* Detalle expandible de domiciliados 16+ días */}
+                    {upcomingDaysFilter > 15 && expandedBankSections.has(`${need.accountId}-dd30d`) && need.directDebit30d.transactions.length > 0 && (
                       <div className="mt-3 bg-purple-50 rounded-lg p-3 border border-purple-200">
-                        <div className="text-xs font-semibold text-purple-700 mb-2">Domiciliados 16-30 días</div>
+                        <div className="text-xs font-semibold text-purple-700 mb-2">
+                          {upcomingDaysFilter === 21 ? 'Domiciliados 16-21 días' : 'Domiciliados 16-30 días'}
+                        </div>
                         <div className="space-y-2">
                           {need.directDebit30d.transactions.map(tx => (
                             <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
@@ -1792,7 +1795,7 @@ export default function DashboardPage() {
               {/* Resumen total */}
               <div className="border-t pt-4 mt-4">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-600">Total comprometido próx. 30 días:</span>
+                  <span className="text-gray-600">Total comprometido próx. {upcomingDaysFilter} días:</span>
                   <span className="font-bold text-red-600">
                     -{formatCurrency(banksWithActivity.reduce((sum, n) => sum + n.totalNeeded, 0))}
                   </span>
