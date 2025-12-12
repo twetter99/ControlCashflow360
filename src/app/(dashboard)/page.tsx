@@ -1381,68 +1381,312 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Resumen por tipo */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card title="Gastos pendientes por categoría">
-          {(() => {
-            const expensesByCategory = pendingTransactions
-              .filter(tx => tx.type === 'EXPENSE')
-              .reduce((acc, tx) => {
-                acc[tx.category] = (acc[tx.category] || 0) + tx.amount;
-                return acc;
-              }, {} as Record<string, number>);
+      {/* Panel de Necesidades de Tesorería por Banco */}
+      <Card title="Necesidades de Tesorería por Banco">
+        {(() => {
+          // Agrupar gastos pendientes por cuenta de cargo (chargeAccountId)
+          const pendingExpenses = pendingTransactions.filter(tx => tx.type === 'EXPENSE');
+          
+          // Crear mapa de necesidades por cuenta
+          interface BankNeed {
+            accountId: string;
+            bankName: string;
+            accountNumber: string;
+            currentBalance: number;
+            availableBalance: number;
+            companyId: string;
+            companyName: string;
+            // Domiciliados por período
+            directDebit7d: { amount: number; transactions: Transaction[] };
+            directDebit15d: { amount: number; transactions: Transaction[] };
+            directDebit30d: { amount: number; transactions: Transaction[] };
+            // Órdenes de pago (transferencias autorizadas)
+            paymentOrders: { amount: number; transactions: Transaction[] };
+            // Transferencias pendientes (sin orden)
+            pendingTransfers: { amount: number; transactions: Transaction[] };
+            // Totales
+            totalNeeded: number;
+            estimatedBalance: number;
+          }
+          
+          const bankNeeds = new Map<string, BankNeed>();
+          
+          // Inicializar con todas las cuentas que tienen movimientos o saldo
+          filteredAccounts.forEach(account => {
+            const holdAmount = accountHolds
+              .filter(h => h.accountId === account.id && h.status === 'ACTIVE')
+              .reduce((sum, h) => sum + h.amount, 0);
+            const company = companies.find(c => c.id === account.companyId);
             
-            const sorted = Object.entries(expensesByCategory)
-              .sort(([,a], [,b]) => b - a)
-              .slice(0, 5);
-
-            if (sorted.length === 0) {
-              return <p className="text-gray-500 text-center py-4">No hay gastos pendientes</p>;
+            bankNeeds.set(account.id, {
+              accountId: account.id,
+              bankName: account.bankName,
+              accountNumber: account.accountNumber,
+              currentBalance: account.currentBalance,
+              availableBalance: account.currentBalance - holdAmount,
+              companyId: account.companyId,
+              companyName: company?.name || '',
+              directDebit7d: { amount: 0, transactions: [] },
+              directDebit15d: { amount: 0, transactions: [] },
+              directDebit30d: { amount: 0, transactions: [] },
+              paymentOrders: { amount: 0, transactions: [] },
+              pendingTransfers: { amount: 0, transactions: [] },
+              totalNeeded: 0,
+              estimatedBalance: account.currentBalance - holdAmount,
+            });
+          });
+          
+          // Clasificar cada gasto pendiente
+          const now = new Date();
+          now.setHours(0, 0, 0, 0);
+          
+          pendingExpenses.forEach(tx => {
+            const accountId = tx.chargeAccountId;
+            if (!accountId) return; // Sin cuenta asignada, no podemos clasificar
+            
+            let bankNeed = bankNeeds.get(accountId);
+            if (!bankNeed) {
+              // Cuenta no encontrada en las cuentas activas
+              const account = accounts.find(a => a.id === accountId);
+              if (!account) return;
+              
+              const holdAmount = accountHolds
+                .filter(h => h.accountId === accountId && h.status === 'ACTIVE')
+                .reduce((sum, h) => sum + h.amount, 0);
+              const company = companies.find(c => c.id === account.companyId);
+              
+              bankNeed = {
+                accountId: account.id,
+                bankName: account.bankName,
+                accountNumber: account.accountNumber,
+                currentBalance: account.currentBalance,
+                availableBalance: account.currentBalance - holdAmount,
+                companyId: account.companyId,
+                companyName: company?.name || '',
+                directDebit7d: { amount: 0, transactions: [] },
+                directDebit15d: { amount: 0, transactions: [] },
+                directDebit30d: { amount: 0, transactions: [] },
+                paymentOrders: { amount: 0, transactions: [] },
+                pendingTransfers: { amount: 0, transactions: [] },
+                totalNeeded: 0,
+                estimatedBalance: account.currentBalance - holdAmount,
+              };
+              bankNeeds.set(accountId, bankNeed);
             }
-
+            
+            const dueDate = new Date(tx.dueDate);
+            const daysUntil = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            
+            if (tx.paymentMethod === 'DIRECT_DEBIT') {
+              // Domiciliado - clasificar por período
+              if (daysUntil <= 7) {
+                bankNeed.directDebit7d.amount += tx.amount;
+                bankNeed.directDebit7d.transactions.push(tx);
+              } else if (daysUntil <= 15) {
+                bankNeed.directDebit15d.amount += tx.amount;
+                bankNeed.directDebit15d.transactions.push(tx);
+              } else if (daysUntil <= 30) {
+                bankNeed.directDebit30d.amount += tx.amount;
+                bankNeed.directDebit30d.transactions.push(tx);
+              }
+            } else if (tx.paymentOrderId) {
+              // Transferencia en orden de pago
+              bankNeed.paymentOrders.amount += tx.amount;
+              bankNeed.paymentOrders.transactions.push(tx);
+            } else {
+              // Transferencia pendiente sin orden
+              if (daysUntil <= 30) {
+                bankNeed.pendingTransfers.amount += tx.amount;
+                bankNeed.pendingTransfers.transactions.push(tx);
+              }
+            }
+          });
+          
+          // Calcular totales y balance estimado
+          bankNeeds.forEach(need => {
+            need.totalNeeded = need.directDebit7d.amount + need.directDebit15d.amount + 
+                               need.directDebit30d.amount + need.paymentOrders.amount;
+            need.estimatedBalance = need.availableBalance - need.totalNeeded;
+          });
+          
+          // Filtrar solo bancos con movimientos o déficit
+          const banksWithActivity = Array.from(bankNeeds.values())
+            .filter(need => 
+              need.totalNeeded > 0 || 
+              need.pendingTransfers.amount > 0 ||
+              need.currentBalance > 0
+            )
+            .sort((a, b) => a.estimatedBalance - b.estimatedBalance); // Déficits primero
+          
+          if (banksWithActivity.length === 0) {
             return (
-              <div className="space-y-3">
-                {sorted.map(([category, amount]) => (
-                  <div key={category} className="flex justify-between items-center">
-                    <span className="text-gray-700">{category}</span>
-                    <span className="font-semibold text-red-600">-{formatCurrency(amount)}</span>
-                  </div>
-                ))}
+              <div className="text-center py-8 text-gray-500">
+                <Building2 size={48} className="mx-auto text-gray-300 mb-4" />
+                <p>No hay pagos programados con cuenta asignada</p>
               </div>
             );
-          })()}
-        </Card>
-
-        <Card title="Ingresos pendientes por categoría">
-          {(() => {
-            const incomesByCategory = pendingTransactions
-              .filter(tx => tx.type === 'INCOME')
-              .reduce((acc, tx) => {
-                acc[tx.category] = (acc[tx.category] || 0) + tx.amount;
-                return acc;
-              }, {} as Record<string, number>);
-            
-            const sorted = Object.entries(incomesByCategory)
-              .sort(([,a], [,b]) => b - a)
-              .slice(0, 5);
-
-            if (sorted.length === 0) {
-              return <p className="text-gray-500 text-center py-4">No hay ingresos pendientes</p>;
-            }
-
-            return (
-              <div className="space-y-3">
-                {sorted.map(([category, amount]) => (
-                  <div key={category} className="flex justify-between items-center">
-                    <span className="text-gray-700">{category}</span>
-                    <span className="font-semibold text-green-600">+{formatCurrency(amount)}</span>
+          }
+          
+          // Formatear últimos 4 dígitos de cuenta
+          const formatAccountShort = (accountNumber: string) => {
+            const clean = accountNumber.replace(/\s/g, '');
+            return clean.length >= 4 ? `****${clean.slice(-4)}` : accountNumber;
+          };
+          
+          return (
+            <div className="space-y-4">
+              {banksWithActivity.map(need => {
+                const hasDeficit = need.estimatedBalance < 0;
+                const hasExcess = need.estimatedBalance > 10000; // Excedente significativo
+                
+                return (
+                  <div 
+                    key={need.accountId}
+                    className={`p-4 rounded-lg border-2 ${
+                      hasDeficit 
+                        ? 'border-red-200 bg-red-50' 
+                        : hasExcess 
+                          ? 'border-green-200 bg-green-50'
+                          : 'border-gray-200 bg-gray-50'
+                    }`}
+                  >
+                    {/* Header del banco */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Building2 size={20} className={hasDeficit ? 'text-red-600' : 'text-gray-600'} />
+                        <div>
+                          <span className="font-semibold text-gray-900">{need.bankName}</span>
+                          <span className="text-gray-500 ml-2 text-sm">{formatAccountShort(need.accountNumber)}</span>
+                        </div>
+                        {need.companyName && (
+                          <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
+                            {need.companyName}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`text-right ${hasDeficit ? 'text-red-600' : 'text-green-600'}`}>
+                        <div className="text-xs text-gray-500">Balance estimado</div>
+                        <div className="font-bold text-lg">
+                          {formatCurrency(need.estimatedBalance)}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Desglose */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                      {/* Saldo actual */}
+                      <div className="bg-white rounded p-2">
+                        <div className="text-gray-500 text-xs">Saldo disponible</div>
+                        <div className="font-semibold text-gray-900">{formatCurrency(need.availableBalance)}</div>
+                      </div>
+                      
+                      {/* Domiciliados próx 7d */}
+                      {need.directDebit7d.amount > 0 && (
+                        <div className="bg-white rounded p-2">
+                          <div className="text-purple-600 text-xs flex items-center gap-1">
+                            <Building2 size={10} />
+                            Dom. próx. 7d
+                          </div>
+                          <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit7d.amount)}</div>
+                          <div className="text-xs text-gray-400">{need.directDebit7d.transactions.length} recibo(s)</div>
+                        </div>
+                      )}
+                      
+                      {/* Domiciliados 8-15d */}
+                      {need.directDebit15d.amount > 0 && (
+                        <div className="bg-white rounded p-2">
+                          <div className="text-purple-600 text-xs flex items-center gap-1">
+                            <Building2 size={10} />
+                            Dom. 8-15d
+                          </div>
+                          <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit15d.amount)}</div>
+                          <div className="text-xs text-gray-400">{need.directDebit15d.transactions.length} recibo(s)</div>
+                        </div>
+                      )}
+                      
+                      {/* Domiciliados 16-30d */}
+                      {need.directDebit30d.amount > 0 && (
+                        <div className="bg-white rounded p-2">
+                          <div className="text-purple-600 text-xs flex items-center gap-1">
+                            <Building2 size={10} />
+                            Dom. 16-30d
+                          </div>
+                          <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit30d.amount)}</div>
+                          <div className="text-xs text-gray-400">{need.directDebit30d.transactions.length} recibo(s)</div>
+                        </div>
+                      )}
+                      
+                      {/* Órdenes de pago */}
+                      {need.paymentOrders.amount > 0 && (
+                        <div className="bg-white rounded p-2">
+                          <div className="text-blue-600 text-xs flex items-center gap-1">
+                            <Send size={10} />
+                            Órdenes de pago
+                          </div>
+                          <div className="font-semibold text-red-600">-{formatCurrency(need.paymentOrders.amount)}</div>
+                          <div className="text-xs text-gray-400">{need.paymentOrders.transactions.length} transf.</div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Alerta de déficit o excedente */}
+                    {hasDeficit && (
+                      <div className="mt-3 flex items-center gap-2 text-red-700 bg-red-100 rounded px-3 py-2">
+                        <AlertTriangle size={16} />
+                        <span className="text-sm font-medium">
+                          Necesita {formatCurrency(Math.abs(need.estimatedBalance))} adicionales
+                        </span>
+                      </div>
+                    )}
+                    {hasExcess && need.totalNeeded > 0 && (
+                      <div className="mt-3 flex items-center gap-2 text-green-700 bg-green-100 rounded px-3 py-2">
+                        <Check size={16} />
+                        <span className="text-sm font-medium">
+                          Excedente de {formatCurrency(need.estimatedBalance)} después de pagos
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* Transferencias pendientes sin asignar a orden */}
+                    {need.pendingTransfers.amount > 0 && (
+                      <div className="mt-3 flex items-center gap-2 text-yellow-700 bg-yellow-100 rounded px-3 py-2">
+                        <Clock size={16} />
+                        <span className="text-sm">
+                          {formatCurrency(need.pendingTransfers.amount)} en transferencias pendientes de agrupar en orden
+                        </span>
+                      </div>
+                    )}
                   </div>
-                ))}
+                );
+              })}
+              
+              {/* Resumen total */}
+              <div className="border-t pt-4 mt-4">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">Total comprometido próx. 30 días:</span>
+                  <span className="font-bold text-red-600">
+                    -{formatCurrency(banksWithActivity.reduce((sum, n) => sum + n.totalNeeded, 0))}
+                  </span>
+                </div>
+                {(() => {
+                  const totalDeficit = banksWithActivity
+                    .filter(n => n.estimatedBalance < 0)
+                    .reduce((sum, n) => sum + Math.abs(n.estimatedBalance), 0);
+                  if (totalDeficit > 0) {
+                    return (
+                      <div className="flex justify-between items-center text-sm mt-2">
+                        <span className="text-red-600 font-medium">⚠️ Déficit total a cubrir:</span>
+                        <span className="font-bold text-red-600">{formatCurrency(totalDeficit)}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
-            );
-          })()}
-        </Card>
-      </div>
+            </div>
+          );
+        })()}
+      </Card>
 
       {/* Modal de detalle de transacciones */}
       {detailModal.isOpen && (
