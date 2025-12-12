@@ -324,67 +324,67 @@ export default function ThirdPartiesPage() {
         })}
       </div>
 
-      {/* Contenedor principal con lista y panel de detalle */}
-      <div className="flex gap-6">
-        {/* Lista de terceros */}
-        <Card className="flex-1">
-          {/* Filtros */}
-          <div className="flex items-center gap-4 p-4 border-b">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                placeholder="Buscar por nombre, CIF o email..."
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm"
-              />
-            </div>
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value as ThirdPartyType | 'ALL')}
-              className="border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="ALL">Todos los tipos</option>
-              <option value="CUSTOMER">Clientes</option>
-              <option value="SUPPLIER">Proveedores</option>
-              <option value="CREDITOR">Acreedores</option>
-              <option value="MIXED">Mixto</option>
-            </select>
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input
-                type="checkbox"
-                checked={showInactive}
-                onChange={(e) => setShowInactive(e.target.checked)}
-                className="rounded"
-              />
-              Mostrar inactivos
-            </label>
+      {/* Lista de terceros */}
+      <Card>
+        {/* Filtros */}
+        <div className="flex items-center gap-4 p-4 border-b">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar por nombre, CIF o email..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm"
+            />
           </div>
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as ThirdPartyType | 'ALL')}
+            className="border rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="ALL">Todos los tipos</option>
+            <option value="CUSTOMER">Clientes</option>
+            <option value="SUPPLIER">Proveedores</option>
+            <option value="CREDITOR">Acreedores</option>
+            <option value="MIXED">Mixto</option>
+          </select>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="rounded"
+            />
+            Mostrar inactivos
+          </label>
+        </div>
 
-          {/* Lista */}
-          <div className="divide-y max-h-[calc(100vh-400px)] overflow-y-auto">
-            {filteredThirdParties.length === 0 ? (
-              <div className="p-12 text-center text-gray-500">
-                <Users size={48} className="mx-auto text-gray-300 mb-4" />
-                <p>No hay terceros</p>
-                <Button variant="outline" onClick={handleOpenCreate} className="mt-4">
-                  <Plus size={16} className="mr-2" />
-                  Crear tercero
-                </Button>
-              </div>
-            ) : (
-              filteredThirdParties.map(tp => {
-                const config = TYPE_CONFIG[tp.type];
-                const recCount = getRecurrenceCount(tp.id);
-                const isSelected = selectedThirdParty?.id === tp.id;
-                
-                return (
+        {/* Lista */}
+        <div className="divide-y max-h-[calc(100vh-350px)] overflow-y-auto">
+          {filteredThirdParties.length === 0 ? (
+            <div className="p-12 text-center text-gray-500">
+              <Users size={48} className="mx-auto text-gray-300 mb-4" />
+              <p>No hay terceros</p>
+              <Button variant="outline" onClick={handleOpenCreate} className="mt-4">
+                <Plus size={16} className="mr-2" />
+                Crear tercero
+              </Button>
+            </div>
+          ) : (
+            filteredThirdParties.map(tp => {
+              const config = TYPE_CONFIG[tp.type];
+              const recCount = getRecurrenceCount(tp.id);
+              const isSelected = selectedThirdParty?.id === tp.id;
+              const tpRecurrences = getRecurrencesForThirdParty(tp.id);
+              
+              return (
+                <div key={tp.id}>
+                  {/* Fila del tercero */}
                   <div 
-                    key={tp.id}
-                    onClick={() => setSelectedThirdParty(tp)}
+                    onClick={() => setSelectedThirdParty(isSelected ? null : tp)}
                     className={`p-4 cursor-pointer transition-colors ${
-                      isSelected ? 'bg-primary-50' : 'hover:bg-gray-50'
+                      isSelected ? 'bg-primary-50 border-l-4 border-l-primary-500' : 'hover:bg-gray-50'
                     } ${!tp.isActive ? 'opacity-60' : ''}`}
                   >
                     <div className="flex items-start justify-between">
@@ -446,182 +446,156 @@ export default function ThirdPartiesPage() {
                             <Check size={16} />
                           </button>
                         )}
-                        <ChevronRight size={18} className="text-gray-300 ml-1" />
+                        <div className={`ml-1 transition-transform ${isSelected ? 'rotate-90' : ''}`}>
+                          <ChevronRight size={18} className="text-gray-400" />
+                        </div>
                       </div>
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
-          
-          {/* Footer con conteo */}
-          <div className="p-3 bg-gray-50 border-t text-sm text-gray-500 text-center">
-            {filteredThirdParties.length} de {thirdParties.filter(tp => showInactive || tp.isActive).length} terceros
-          </div>
-        </Card>
 
-        {/* Panel de detalle */}
-        {selectedThirdParty && (
-          <Card className="w-[450px] flex flex-col">
-            {/* Header del detalle */}
-            <div className="p-4 border-b">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">{selectedThirdParty.displayName}</h2>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_CONFIG[selectedThirdParty.type].color}`}>
-                      {TYPE_CONFIG[selectedThirdParty.type].label}
-                    </span>
-                    {!selectedThirdParty.isActive && (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                        Inactivo
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setSelectedThirdParty(null)}
-                  className="p-1 hover:bg-gray-100 rounded"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-
-            {/* Datos del tercero */}
-            <div className="p-4 border-b space-y-3">
-              {selectedThirdParty.cif && (
-                <div className="flex items-center gap-3 text-sm">
-                  <FileText size={16} className="text-gray-400" />
-                  <span className="text-gray-600">CIF/NIF:</span>
-                  <span className="font-medium">{selectedThirdParty.cif}</span>
-                </div>
-              )}
-              {selectedThirdParty.email && (
-                <div className="flex items-center gap-3 text-sm">
-                  <Mail size={16} className="text-gray-400" />
-                  <span className="text-gray-600">Email:</span>
-                  <a href={`mailto:${selectedThirdParty.email}`} className="font-medium text-primary-600 hover:underline">
-                    {selectedThirdParty.email}
-                  </a>
-                </div>
-              )}
-              {selectedThirdParty.phone && (
-                <div className="flex items-center gap-3 text-sm">
-                  <Phone size={16} className="text-gray-400" />
-                  <span className="text-gray-600">Teléfono:</span>
-                  <a href={`tel:${selectedThirdParty.phone}`} className="font-medium">
-                    {selectedThirdParty.phone}
-                  </a>
-                </div>
-              )}
-              {selectedThirdParty.notes && (
-                <div className="text-sm">
-                  <p className="text-gray-600 mb-1">Notas:</p>
-                  <p className="text-gray-800 bg-gray-50 p-2 rounded">{selectedThirdParty.notes}</p>
-                </div>
-              )}
-              {selectedThirdParty.lastUsedAt && (
-                <div className="flex items-center gap-3 text-sm text-gray-500">
-                  <Calendar size={16} className="text-gray-400" />
-                  <span>Último uso: {formatDate(selectedThirdParty.lastUsedAt)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Recurrencias asociadas */}
-            <div className="flex-1 overflow-auto">
-              <div className="p-4">
-                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                  <Repeat size={18} className="text-primary-600" />
-                  Gastos/Ingresos Recurrentes
-                </h3>
-                
-                {(() => {
-                  const tpRecurrences = getRecurrencesForThirdParty(selectedThirdParty.id);
-                  
-                  if (tpRecurrences.length === 0) {
-                    return (
-                      <div className="text-center py-6 text-gray-500">
-                        <Repeat size={32} className="mx-auto text-gray-300 mb-2" />
-                        <p className="text-sm">No tiene recurrencias asociadas</p>
-                      </div>
-                    );
-                  }
-                  
-                  return (
-                    <div className="space-y-3">
-                      {tpRecurrences.map(rec => {
-                        const isExpense = rec.type === 'EXPENSE';
-                        const statusColor = rec.status === 'ACTIVE' 
-                          ? 'bg-green-100 text-green-700' 
-                          : rec.status === 'PAUSED' 
-                            ? 'bg-yellow-100 text-yellow-700' 
-                            : 'bg-gray-100 text-gray-700';
-                        const statusLabel = rec.status === 'ACTIVE' ? 'Activa' : rec.status === 'PAUSED' ? 'Pausada' : 'Finalizada';
-                        
-                        return (
-                          <div 
-                            key={rec.id}
-                            className="bg-gray-50 rounded-lg p-3 border border-gray-200"
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <div>
-                                <p className="font-medium text-gray-900">{rec.name}</p>
-                                <p className="text-xs text-gray-500">{getCompanyName(rec.companyId)}</p>
+                  {/* Panel expandible de detalle */}
+                  {isSelected && (
+                    <div className="bg-gray-50 border-t border-b border-gray-200 animate-in slide-in-from-top-2 duration-200">
+                      {/* Información del tercero y acciones */}
+                      <div className="p-4 border-b border-gray-200">
+                        <div className="flex items-start justify-between">
+                          <div className="flex flex-wrap gap-6">
+                            {tp.cif && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <FileText size={16} className="text-gray-400" />
+                                <span className="text-gray-600">CIF/NIF:</span>
+                                <span className="font-medium">{tp.cif}</span>
                               </div>
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor}`}>
-                                {statusLabel}
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                              <div>
-                                <span className="text-gray-500">Importe:</span>
-                                <span className={`ml-2 font-semibold ${isExpense ? 'text-red-600' : 'text-green-600'}`}>
-                                  {isExpense ? '-' : '+'}{formatCurrency(rec.baseAmount)}
-                                </span>
+                            )}
+                            {tp.email && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Mail size={16} className="text-gray-400" />
+                                <span className="text-gray-600">Email:</span>
+                                <a href={`mailto:${tp.email}`} className="font-medium text-primary-600 hover:underline">
+                                  {tp.email}
+                                </a>
                               </div>
-                              <div>
-                                <span className="text-gray-500">Frecuencia:</span>
-                                <span className="ml-2 font-medium">{FREQUENCY_LABELS[rec.frequency]}</span>
-                                {rec.dayOfMonth && <span className="text-gray-500 text-xs"> (día {rec.dayOfMonth})</span>}
+                            )}
+                            {tp.phone && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Phone size={16} className="text-gray-400" />
+                                <span className="text-gray-600">Teléfono:</span>
+                                <a href={`tel:${tp.phone}`} className="font-medium">
+                                  {tp.phone}
+                                </a>
                               </div>
-                            </div>
-                            <div className="mt-2 text-xs text-gray-500 flex items-center gap-1">
-                              <Calendar size={12} />
-                              <span>{formatPeriod(rec)}</span>
-                            </div>
+                            )}
+                            {tp.lastUsedAt && (
+                              <div className="flex items-center gap-2 text-sm text-gray-500">
+                                <Calendar size={16} className="text-gray-400" />
+                                <span>Último uso: {formatDate(tp.lastUsedAt)}</span>
+                              </div>
+                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" variant="outline" onClick={() => handleOpenEdit(tp)}>
+                              <Edit2 size={14} className="mr-1" />
+                              Editar
+                            </Button>
+                            {tp.isActive ? (
+                              <Button size="sm" variant="outline" onClick={() => handleDelete(tp)}>
+                                <Trash2 size={14} className="mr-1" />
+                                Eliminar
+                              </Button>
+                            ) : (
+                              <Button size="sm" variant="outline" onClick={() => handleReactivate(tp)}>
+                                <Check size={14} className="mr-1" />
+                                Reactivar
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        {tp.notes && (
+                          <div className="mt-3 text-sm">
+                            <span className="text-gray-600">Notas: </span>
+                            <span className="text-gray-800">{tp.notes}</span>
+                          </div>
+                        )}
+                      </div>
 
-            {/* Acciones del detalle */}
-            <div className="p-4 border-t bg-gray-50 flex justify-between">
-              <Button variant="outline" onClick={() => handleOpenEdit(selectedThirdParty)}>
-                <Edit2 size={16} className="mr-2" />
-                Editar
-              </Button>
-              {selectedThirdParty.isActive ? (
-                <Button variant="outline" onClick={() => handleDelete(selectedThirdParty)}>
-                  <Trash2 size={16} className="mr-2" />
-                  Eliminar
-                </Button>
-              ) : (
-                <Button variant="outline" onClick={() => handleReactivate(selectedThirdParty)}>
-                  <Check size={16} className="mr-2" />
-                  Reactivar
-                </Button>
-              )}
-            </div>
-          </Card>
-        )}
-      </div>
+                      {/* Recurrencias en tabla horizontal */}
+                      <div className="p-4">
+                        <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                          <Repeat size={16} className="text-primary-600" />
+                          Gastos/Ingresos Recurrentes
+                        </h4>
+                        
+                        {tpRecurrences.length === 0 ? (
+                          <div className="text-center py-4 text-gray-500">
+                            <p className="text-sm">No tiene recurrencias asociadas</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-gray-100 text-gray-600">
+                                  <th className="text-left px-3 py-2 font-medium rounded-tl-lg">Nombre</th>
+                                  <th className="text-left px-3 py-2 font-medium">Empresa</th>
+                                  <th className="text-right px-3 py-2 font-medium">Importe</th>
+                                  <th className="text-center px-3 py-2 font-medium">Frecuencia</th>
+                                  <th className="text-center px-3 py-2 font-medium">Período</th>
+                                  <th className="text-center px-3 py-2 font-medium rounded-tr-lg">Estado</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200">
+                                {tpRecurrences.map(rec => {
+                                  const isExpense = rec.type === 'EXPENSE';
+                                  const statusColor = rec.status === 'ACTIVE' 
+                                    ? 'bg-green-100 text-green-700' 
+                                    : rec.status === 'PAUSED' 
+                                      ? 'bg-yellow-100 text-yellow-700' 
+                                      : 'bg-gray-100 text-gray-700';
+                                  const statusLabel = rec.status === 'ACTIVE' ? 'Activa' : rec.status === 'PAUSED' ? 'Pausada' : 'Finalizada';
+                                  
+                                  return (
+                                    <tr key={rec.id} className="hover:bg-white">
+                                      <td className="px-3 py-2.5">
+                                        <span className="font-medium text-gray-900">{rec.name}</span>
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-600">
+                                        {getCompanyName(rec.companyId)}
+                                      </td>
+                                      <td className={`px-3 py-2.5 text-right font-semibold ${isExpense ? 'text-red-600' : 'text-green-600'}`}>
+                                        {isExpense ? '-' : '+'}{formatCurrency(rec.baseAmount)}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-center text-gray-700">
+                                        {FREQUENCY_LABELS[rec.frequency]}
+                                        {rec.dayOfMonth && <span className="text-gray-500 text-xs ml-1">(día {rec.dayOfMonth})</span>}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-center text-gray-500 text-xs">
+                                        {formatPeriod(rec)}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-center">
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor}`}>
+                                          {statusLabel}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+        
+        {/* Footer con conteo */}
+        <div className="p-3 bg-gray-50 border-t text-sm text-gray-500 text-center">
+          {filteredThirdParties.length} de {thirdParties.filter(tp => showInactive || tp.isActive).length} terceros
+        </div>
+      </Card>
 
       {/* Modal crear/editar */}
       {isModalOpen && (
