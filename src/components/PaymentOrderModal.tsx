@@ -375,25 +375,33 @@ export function PaymentOrderModal({
                     <>
                       {accountGroups.map((group, groupIdx) => (
                         <div key={group.accountId} className={groupIdx > 0 ? 'mt-6' : ''}>
-                          {/* Cabecera del grupo - Banco y Empresa */}
-                          <div className="bg-primary-50 border border-primary-200 rounded-t-lg p-3 flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="flex items-center gap-2">
-                                <CreditCard size={16} className="text-primary-600" />
-                                <span className="font-semibold text-primary-800">
-                                  {group.account ? `${group.account.bankName} - ${group.account.alias}` : 'Sin cuenta asignada'}
-                                </span>
-                              </div>
-                              {group.company && (
-                                <div className="flex items-center gap-2 text-sm text-gray-600">
-                                  <Building2 size={14} />
-                                  <span>{group.company.name}</span>
+                          {/* Cabecera del grupo - Banco, IBAN y Empresa */}
+                          <div className="bg-primary-50 border border-primary-200 rounded-t-lg p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                  <CreditCard size={16} className="text-primary-600" />
+                                  <span className="font-semibold text-primary-800">
+                                    {group.account ? `${group.account.bankName} - ${group.account.alias}` : 'Sin cuenta asignada'}
+                                  </span>
                                 </div>
-                              )}
+                                {group.company && (
+                                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                                    <Building2 size={14} />
+                                    <span>{group.company.name}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-sm">
+                                <span className="text-gray-500">{group.items.length} pago(s)</span>
+                              </div>
                             </div>
-                            <div className="text-sm">
-                              <span className="text-gray-500">{group.items.length} pago(s)</span>
-                            </div>
+                            {group.account?.accountNumber && (
+                              <div className="mt-2 text-sm">
+                                <span className="text-gray-500">IBAN Origen: </span>
+                                <span className="font-mono text-primary-700">{formatIBAN(group.account.accountNumber)}</span>
+                              </div>
+                            )}
                           </div>
                           
                           {/* Tabla de pagos del grupo */}
