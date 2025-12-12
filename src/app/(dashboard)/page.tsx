@@ -26,7 +26,9 @@ import {
   ExternalLink,
   Lock,
   ClipboardList,
-  Send
+  Send,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Link from 'next/link';
@@ -120,6 +122,22 @@ export default function DashboardPage() {
     total: 0,
     monthLabel: ''
   });
+
+  // Estado para desplegables de necesidades de tesorería por banco
+  const [expandedBankSections, setExpandedBankSections] = useState<Set<string>>(new Set());
+  
+  // Toggle para expandir/colapsar secciones del panel de tesorería
+  const toggleBankSection = (sectionKey: string) => {
+    setExpandedBankSections(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(sectionKey)) {
+        newSet.delete(sectionKey);
+      } else {
+        newSet.add(sectionKey);
+      }
+      return newSet;
+    });
+  };
 
   /**
    * Determina la capa del ingreso basada en la lógica del Sistema de 3 Capas:
@@ -1583,51 +1601,162 @@ export default function DashboardPage() {
                       {/* Domiciliados próx 7d */}
                       {need.directDebit7d.amount > 0 && (
                         <div className="bg-white rounded p-2">
-                          <div className="text-purple-600 text-xs flex items-center gap-1">
-                            <Building2 size={10} />
-                            Dom. próx. 7d
-                          </div>
-                          <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit7d.amount)}</div>
-                          <div className="text-xs text-gray-400">{need.directDebit7d.transactions.length} recibo(s)</div>
+                          <button 
+                            onClick={() => toggleBankSection(`${need.accountId}-dd7d`)}
+                            className="w-full text-left"
+                          >
+                            <div className="text-purple-600 text-xs flex items-center gap-1">
+                              {expandedBankSections.has(`${need.accountId}-dd7d`) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                              <Building2 size={10} />
+                              Dom. próx. 7d
+                            </div>
+                            <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit7d.amount)}</div>
+                            <div className="text-xs text-gray-400">{need.directDebit7d.transactions.length} recibo(s)</div>
+                          </button>
                         </div>
                       )}
                       
                       {/* Domiciliados 8-15d */}
                       {need.directDebit15d.amount > 0 && (
                         <div className="bg-white rounded p-2">
-                          <div className="text-purple-600 text-xs flex items-center gap-1">
-                            <Building2 size={10} />
-                            Dom. 8-15d
-                          </div>
-                          <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit15d.amount)}</div>
-                          <div className="text-xs text-gray-400">{need.directDebit15d.transactions.length} recibo(s)</div>
+                          <button 
+                            onClick={() => toggleBankSection(`${need.accountId}-dd15d`)}
+                            className="w-full text-left"
+                          >
+                            <div className="text-purple-600 text-xs flex items-center gap-1">
+                              {expandedBankSections.has(`${need.accountId}-dd15d`) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                              <Building2 size={10} />
+                              Dom. 8-15d
+                            </div>
+                            <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit15d.amount)}</div>
+                            <div className="text-xs text-gray-400">{need.directDebit15d.transactions.length} recibo(s)</div>
+                          </button>
                         </div>
                       )}
                       
                       {/* Domiciliados 16-30d */}
                       {need.directDebit30d.amount > 0 && (
                         <div className="bg-white rounded p-2">
-                          <div className="text-purple-600 text-xs flex items-center gap-1">
-                            <Building2 size={10} />
-                            Dom. 16-30d
-                          </div>
-                          <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit30d.amount)}</div>
-                          <div className="text-xs text-gray-400">{need.directDebit30d.transactions.length} recibo(s)</div>
+                          <button 
+                            onClick={() => toggleBankSection(`${need.accountId}-dd30d`)}
+                            className="w-full text-left"
+                          >
+                            <div className="text-purple-600 text-xs flex items-center gap-1">
+                              {expandedBankSections.has(`${need.accountId}-dd30d`) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                              <Building2 size={10} />
+                              Dom. 16-30d
+                            </div>
+                            <div className="font-semibold text-red-600">-{formatCurrency(need.directDebit30d.amount)}</div>
+                            <div className="text-xs text-gray-400">{need.directDebit30d.transactions.length} recibo(s)</div>
+                          </button>
                         </div>
                       )}
                       
                       {/* Órdenes de pago */}
                       {need.paymentOrders.amount > 0 && (
                         <div className="bg-white rounded p-2">
-                          <div className="text-blue-600 text-xs flex items-center gap-1">
-                            <Send size={10} />
-                            Órdenes de pago
-                          </div>
-                          <div className="font-semibold text-red-600">-{formatCurrency(need.paymentOrders.amount)}</div>
-                          <div className="text-xs text-gray-400">{need.paymentOrders.transactions.length} transf.</div>
+                          <button 
+                            onClick={() => toggleBankSection(`${need.accountId}-orders`)}
+                            className="w-full text-left"
+                          >
+                            <div className="text-blue-600 text-xs flex items-center gap-1">
+                              {expandedBankSections.has(`${need.accountId}-orders`) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                              <Send size={10} />
+                              Órdenes de pago
+                            </div>
+                            <div className="font-semibold text-red-600">-{formatCurrency(need.paymentOrders.amount)}</div>
+                            <div className="text-xs text-gray-400">{need.paymentOrders.transactions.length} transf.</div>
+                          </button>
                         </div>
                       )}
                     </div>
+                    
+                    {/* Detalle expandible de domiciliados 7d */}
+                    {expandedBankSections.has(`${need.accountId}-dd7d`) && need.directDebit7d.transactions.length > 0 && (
+                      <div className="mt-3 bg-purple-50 rounded-lg p-3 border border-purple-200">
+                        <div className="text-xs font-semibold text-purple-700 mb-2">Domiciliados próximos 7 días</div>
+                        <div className="space-y-2">
+                          {need.directDebit7d.transactions.map(tx => (
+                            <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
+                              <div>
+                                <span className="font-medium text-gray-900">{tx.description || tx.category}</span>
+                                {tx.thirdPartyName && <span className="text-gray-500 ml-2">· {tx.thirdPartyName}</span>}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-gray-500 text-xs">{formatDate(tx.dueDate)}</span>
+                                <span className="font-semibold text-red-600">-{formatCurrency(tx.amount)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Detalle expandible de domiciliados 8-15d */}
+                    {expandedBankSections.has(`${need.accountId}-dd15d`) && need.directDebit15d.transactions.length > 0 && (
+                      <div className="mt-3 bg-purple-50 rounded-lg p-3 border border-purple-200">
+                        <div className="text-xs font-semibold text-purple-700 mb-2">Domiciliados 8-15 días</div>
+                        <div className="space-y-2">
+                          {need.directDebit15d.transactions.map(tx => (
+                            <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
+                              <div>
+                                <span className="font-medium text-gray-900">{tx.description || tx.category}</span>
+                                {tx.thirdPartyName && <span className="text-gray-500 ml-2">· {tx.thirdPartyName}</span>}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-gray-500 text-xs">{formatDate(tx.dueDate)}</span>
+                                <span className="font-semibold text-red-600">-{formatCurrency(tx.amount)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Detalle expandible de domiciliados 16-30d */}
+                    {expandedBankSections.has(`${need.accountId}-dd30d`) && need.directDebit30d.transactions.length > 0 && (
+                      <div className="mt-3 bg-purple-50 rounded-lg p-3 border border-purple-200">
+                        <div className="text-xs font-semibold text-purple-700 mb-2">Domiciliados 16-30 días</div>
+                        <div className="space-y-2">
+                          {need.directDebit30d.transactions.map(tx => (
+                            <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
+                              <div>
+                                <span className="font-medium text-gray-900">{tx.description || tx.category}</span>
+                                {tx.thirdPartyName && <span className="text-gray-500 ml-2">· {tx.thirdPartyName}</span>}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-gray-500 text-xs">{formatDate(tx.dueDate)}</span>
+                                <span className="font-semibold text-red-600">-{formatCurrency(tx.amount)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Detalle expandible de órdenes de pago */}
+                    {expandedBankSections.has(`${need.accountId}-orders`) && need.paymentOrders.transactions.length > 0 && (
+                      <div className="mt-3 bg-blue-50 rounded-lg p-3 border border-blue-200">
+                        <div className="text-xs font-semibold text-blue-700 mb-2">Transferencias en órdenes de pago</div>
+                        <div className="space-y-2">
+                          {need.paymentOrders.transactions.map(tx => (
+                            <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
+                              <div>
+                                <span className="font-medium text-gray-900">{tx.description || tx.category}</span>
+                                {tx.thirdPartyName && <span className="text-gray-500 ml-2">· {tx.thirdPartyName}</span>}
+                                {tx.paymentOrderNumber && (
+                                  <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{tx.paymentOrderNumber}</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-gray-500 text-xs">{formatDate(tx.dueDate)}</span>
+                                <span className="font-semibold text-red-600">-{formatCurrency(tx.amount)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     
                     {/* Alerta de déficit o excedente */}
                     {hasDeficit && (
