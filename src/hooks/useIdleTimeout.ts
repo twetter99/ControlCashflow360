@@ -87,7 +87,8 @@ export function useIdleTimeout({
   
   const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActivityRef = useRef<number>(Date.now());
+  // Inicializar con localStorage si existe, sino con Date.now()
+  const lastActivityRef = useRef<number>(getLastActivity() || Date.now());
 
   // Limpiar todos los timers
   const clearAllTimers = useCallback(() => {
@@ -192,24 +193,38 @@ export function useIdleTimeout({
     };
   }, [enabled, resetTimer, showWarning, clearAllTimers]);
 
-  // Detectar cuando la pestaña está oculta/visible
+  // Detectar cuando la pestaña está oculta/visible (incluye despertar de suspensión)
   useEffect(() => {
     if (!enabled) return;
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Verificar cuánto tiempo pasó mientras estaba oculto
-        const elapsed = Date.now() - lastActivityRef.current;
+        // Usar localStorage como fuente de verdad (sobrevive a suspensión)
+        const storedActivity = getLastActivity();
+        const lastActivity = storedActivity || lastActivityRef.current;
+        const elapsed = Date.now() - lastActivity;
         const idleMs = idleTime * 60 * 1000;
+        const totalTimeoutMs = idleMs + (warningTime * 1000);
         
-        if (elapsed >= idleMs + (warningTime * 1000)) {
-          // Ya pasó el tiempo total, cerrar sesión
+        console.log(`[IdleTimeout] Visibility change - elapsed: ${Math.round(elapsed/1000)}s, timeout: ${Math.round(totalTimeoutMs/1000)}s`);
+        
+        if (elapsed >= totalTimeoutMs) {
+          // Ya pasó el tiempo total (idle + warning), cerrar sesión inmediatamente
+          console.log('[IdleTimeout] Sesión expirada por inactividad prolongada');
+          clearAllTimers();
+          setShowWarning(false);
           onTimeout();
         } else if (elapsed >= idleMs) {
-          // Pasó el tiempo idle pero no el warning, mostrar aviso
-          const remainingWarning = Math.ceil((idleMs + (warningTime * 1000) - elapsed) / 1000);
+          // Pasó el tiempo idle pero no el warning, mostrar aviso con tiempo restante
+          const remainingWarning = Math.ceil((totalTimeoutMs - elapsed) / 1000);
+          console.log(`[IdleTimeout] Mostrando warning - ${remainingWarning}s restantes`);
           setShowWarning(true);
           setRemainingSeconds(remainingWarning);
+          
+          // Limpiar timer anterior si existe
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+          }
           
           countdownTimerRef.current = setInterval(() => {
             setRemainingSeconds((prev) => {
@@ -223,16 +238,35 @@ export function useIdleTimeout({
             });
           }, 1000);
         } else {
-          // Todavía hay tiempo, reiniciar con el tiempo restante
+          // Todavía hay tiempo, reiniciar timer
           resetTimer();
         }
       }
     };
 
+    // También verificar al volver de suspensión usando un intervalo de heartbeat
+    let heartbeatInterval: NodeJS.Timeout | null = null;
+    let lastHeartbeat = Date.now();
+    
+    const checkHeartbeat = () => {
+      const now = Date.now();
+      const gap = now - lastHeartbeat;
+      
+      // Si pasaron más de 5 segundos entre heartbeats, probablemente hubo suspensión
+      if (gap > 5000) {
+        console.log(`[IdleTimeout] Detectado gap de ${Math.round(gap/1000)}s - posible suspensión`);
+        handleVisibilityChange();
+      }
+      lastHeartbeat = now;
+    };
+    
+    heartbeatInterval = setInterval(checkHeartbeat, 2000);
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
     };
   }, [enabled, idleTime, warningTime, onTimeout, resetTimer, clearAllTimers]);
 
