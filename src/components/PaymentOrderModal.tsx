@@ -25,7 +25,7 @@ import {
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 
 interface PaymentOrderModalProps {
   isOpen: boolean;
@@ -395,26 +395,138 @@ export function PaymentOrderModal({
     toast.success('PDF descargado');
   };
 
-  // Exportar a Excel
+  // Exportar a Excel con estilos profesionales
   const handleExportExcel = () => {
     if (!createdOrder) return;
     
-    // Datos para el Excel
-    const data: (string | number)[][] = [];
+    // Estilos comunes
+    const headerStyle = {
+      font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+      fill: { fgColor: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } }
+      }
+    };
     
-    // Cabecera general
-    data.push(['ORDEN DE PAGO', createdOrder.orderNumber]);
-    data.push(['Fecha', formatDate(createdOrder.createdAt)]);
-    data.push(['Autorizado por', createdOrder.authorizedByName || '']);
-    data.push(['Total', createdOrder.totalAmount]);
-    data.push(['Operaciones', createdOrder.itemCount]);
+    const titleStyle = {
+      font: { bold: true, sz: 14, color: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'left' }
+    };
+    
+    const labelStyle = {
+      font: { bold: true, sz: 10, color: { rgb: '555555' } },
+      alignment: { horizontal: 'left' }
+    };
+    
+    const valueStyle = {
+      font: { sz: 10 },
+      alignment: { horizontal: 'left' }
+    };
+    
+    const cellStyle = {
+      font: { sz: 10 },
+      alignment: { vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+        bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+        left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+        right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+      }
+    };
+    
+    const cellStyleAlt = {
+      ...cellStyle,
+      fill: { fgColor: { rgb: 'F5F5F5' } }
+    };
+    
+    const currencyStyle = {
+      ...cellStyle,
+      alignment: { horizontal: 'right', vertical: 'center' },
+      numFmt: '#,##0.00 €'
+    };
+    
+    const currencyStyleAlt = {
+      ...currencyStyle,
+      fill: { fgColor: { rgb: 'F5F5F5' } }
+    };
+    
+    const totalLabelStyle = {
+      font: { bold: true, sz: 11 },
+      alignment: { horizontal: 'right' },
+      border: {
+        top: { style: 'medium', color: { rgb: '1E3A5F' } },
+        bottom: { style: 'medium', color: { rgb: '1E3A5F' } }
+      }
+    };
+    
+    const totalValueStyle = {
+      font: { bold: true, sz: 11, color: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'right' },
+      numFmt: '#,##0.00 €',
+      border: {
+        top: { style: 'medium', color: { rgb: '1E3A5F' } },
+        bottom: { style: 'medium', color: { rgb: '1E3A5F' } }
+      }
+    };
+    
+    // Construir datos con estilos
+    type CellValue = { v: string | number; t?: string; s?: Record<string, unknown> };
+    const data: CellValue[][] = [];
+    
+    // Cabecera del documento
+    data.push([
+      { v: 'ORDEN DE PAGO', s: titleStyle },
+      { v: createdOrder.orderNumber, s: { font: { bold: true, sz: 14 } } },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Fecha:', s: labelStyle },
+      { v: formatDate(createdOrder.createdAt), s: valueStyle },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Autorizado por:', s: labelStyle },
+      { v: createdOrder.authorizedByName || '', s: valueStyle },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Total:', s: labelStyle },
+      { v: createdOrder.totalAmount, t: 'n', s: { ...valueStyle, numFmt: '#,##0.00 €', font: { bold: true, sz: 11 } } },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
+    data.push([
+      { v: 'Operaciones:', s: labelStyle },
+      { v: createdOrder.itemCount, s: valueStyle },
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+    ]);
     if (createdOrder.notesForFinance) {
-      data.push(['Notas para Financiero', createdOrder.notesForFinance]);
+      data.push([
+        { v: 'Notas:', s: labelStyle },
+        { v: createdOrder.notesForFinance, s: valueStyle },
+        { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }
+      ]);
     }
-    data.push([]); // Fila vacía
+    
+    // Fila vacía
+    data.push([{ v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }]);
     
     // Cabecera de tabla
-    data.push(['Banco Cargo', 'IBAN Origen', 'Empresa', 'Beneficiario', 'Nº Factura', 'Concepto', 'IBAN Destino', 'Vencimiento', 'Importe']);
+    const headerRowIndex = data.length;
+    data.push([
+      { v: 'Banco Cargo', s: headerStyle },
+      { v: 'IBAN Origen', s: headerStyle },
+      { v: 'Empresa', s: headerStyle },
+      { v: 'Beneficiario', s: headerStyle },
+      { v: 'Nº Factura', s: headerStyle },
+      { v: 'Concepto', s: headerStyle },
+      { v: 'IBAN Destino', s: headerStyle },
+      { v: 'Vencimiento', s: { ...headerStyle, alignment: { horizontal: 'center', vertical: 'center' } } },
+      { v: 'Importe', s: { ...headerStyle, alignment: { horizontal: 'right', vertical: 'center' } } }
+    ]);
     
     // Agrupar por cuenta
     const groupedItems = createdOrder.items.reduce((acc, item) => {
@@ -424,45 +536,60 @@ export function PaymentOrderModal({
       return acc;
     }, {} as Record<string, typeof createdOrder.items>);
     
-    // Items agrupados
+    // Items con filas alternadas
+    let rowIndex = 0;
     Object.entries(groupedItems).forEach(([accountId, items]) => {
       const account = accounts.find(a => a.id === accountId);
       const company = account ? companies.find(c => c.id === account.companyId) : null;
       
       items.forEach(item => {
+        const isAlt = rowIndex % 2 === 1;
+        const style = isAlt ? cellStyleAlt : cellStyle;
+        const currStyle = isAlt ? currencyStyleAlt : currencyStyle;
+        
         data.push([
-          account ? `${account.bankName} - ${account.alias}` : 'Sin cuenta',
-          account?.accountNumber ? formatIBAN(account.accountNumber) : '',
-          company?.name || '',
-          item.thirdPartyName,
-          item.supplierInvoiceNumber || '',
-          item.description,
-          formatIBAN(item.supplierBankAccount),
-          formatDate(item.dueDate),
-          item.amount
+          { v: account ? `${account.bankName} - ${account.alias}` : 'Sin cuenta', s: style },
+          { v: account?.accountNumber ? formatIBAN(account.accountNumber) : '', s: { ...style, font: { sz: 9, name: 'Consolas' } } },
+          { v: company?.name || '', s: style },
+          { v: item.thirdPartyName, s: style },
+          { v: item.supplierInvoiceNumber || '', s: style },
+          { v: item.description, s: style },
+          { v: formatIBAN(item.supplierBankAccount), s: { ...style, font: { sz: 9, name: 'Consolas' } } },
+          { v: formatDate(item.dueDate), s: { ...style, alignment: { horizontal: 'center', vertical: 'center' } } },
+          { v: item.amount, t: 'n', s: currStyle }
         ]);
+        rowIndex++;
       });
     });
     
-    // Fila de total
-    data.push([]);
-    data.push(['', '', '', '', '', '', '', 'TOTAL:', createdOrder.totalAmount]);
+    // Fila vacía antes del total
+    data.push([{ v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }]);
     
-    // Crear libro de Excel
+    // Fila de total
+    data.push([
+      { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' }, { v: '' },
+      { v: 'TOTAL:', s: totalLabelStyle },
+      { v: createdOrder.totalAmount, t: 'n', s: totalValueStyle }
+    ]);
+    
+    // Crear hoja
     const ws = XLSX.utils.aoa_to_sheet(data);
     
     // Ajustar ancho de columnas
     ws['!cols'] = [
-      { wch: 25 }, // Banco
-      { wch: 28 }, // IBAN Origen
-      { wch: 20 }, // Empresa
-      { wch: 25 }, // Beneficiario
-      { wch: 15 }, // Nº Factura
-      { wch: 30 }, // Concepto
-      { wch: 28 }, // IBAN Destino
-      { wch: 12 }, // Vencimiento
-      { wch: 12 }, // Importe
+      { wch: 28 },  // Banco Cargo
+      { wch: 32 },  // IBAN Origen
+      { wch: 22 },  // Empresa
+      { wch: 28 },  // Beneficiario
+      { wch: 14 },  // Nº Factura
+      { wch: 35 },  // Concepto
+      { wch: 32 },  // IBAN Destino
+      { wch: 14 },  // Vencimiento
+      { wch: 14 },  // Importe
     ];
+    
+    // Altura de filas
+    ws['!rows'] = data.map((_, i) => ({ hpt: i === headerRowIndex ? 22 : 18 }));
     
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orden de Pago');
