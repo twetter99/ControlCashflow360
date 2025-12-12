@@ -291,6 +291,13 @@ export default function DashboardPage() {
   // Liquidez de emergencia (solo pólizas + tarjetas disponibles)
   const emergencyLiquidity = totalCreditAvailable + totalCardAvailable;
 
+  // Helper para obtener nombre del banco de una cuenta
+  const getAccountBankName = (accountId: string | undefined): string | null => {
+    if (!accountId) return null;
+    const account = accounts.find(a => a.id === accountId);
+    return account?.bankName || null;
+  };
+
   // ==========================================
   // CAPA 2: PREVISIONES (MOVIMIENTOS)
   // ==========================================
@@ -1313,12 +1320,17 @@ export default function DashboardPage() {
                         </span>
                         {tx.type === 'EXPENSE' && tx.paymentMethod && (
                           <span className={`ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-xs ${
-                            tx.paymentMethod === 'TRANSFER' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
+                            tx.paymentMethod === 'TRANSFER' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
                           }`}>
                             {tx.paymentMethod === 'TRANSFER' ? (
                               <><Send size={10} className="mr-0.5" /> Transf.</>
                             ) : (
-                              '🔄 Dom.'
+                              <>
+                                <Building2 size={10} className="mr-0.5" />
+                                Dom.{tx.chargeAccountId && getAccountBankName(tx.chargeAccountId) && (
+                                  <span className="ml-0.5 font-medium">· {getAccountBankName(tx.chargeAccountId)}</span>
+                                )}
+                              </>
                             )}
                           </span>
                         )}

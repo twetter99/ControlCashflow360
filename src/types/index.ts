@@ -350,6 +350,11 @@ export interface Recurrence {
   accountId?: string;                  // Cuenta por defecto
   certainty: CertaintyLevel;
   notes?: string;
+  // Campos para gastos de proveedores (opcionales)
+  supplierInvoiceNumber?: string;      // Nº factura del proveedor
+  supplierBankAccount?: string;        // IBAN/cuenta del proveedor para transferencia
+  paymentMethod?: PaymentMethod;       // Método de pago: transferencia o recibo domiciliado
+  chargeAccountId?: string;            // Cuenta bancaria donde se carga el pago
   // Configuración de recurrencia
   frequency: RecurrenceFrequency;
   dayOfMonth?: number;                 // Para MONTHLY (1-31)
