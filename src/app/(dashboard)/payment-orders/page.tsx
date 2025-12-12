@@ -18,7 +18,9 @@ import {
   MessageSquare,
   Filter,
   RefreshCw,
-  X
+  X,
+  Trash2,
+  Edit2
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
 
@@ -77,6 +79,23 @@ export default function PaymentOrdersPage() {
       console.error('Error:', error);
       toast.error('Error al cancelar la orden');
     }
+  };
+
+  const handleDelete = async (order: PaymentOrder) => {
+    if (!confirm(`¿Eliminar definitivamente la orden ${order.orderNumber}?\n\nEsta acción no se puede deshacer.`)) return;
+    try {
+      await paymentOrdersApi.delete(order.id);
+      setOrders(prev => prev.filter(o => o.id !== order.id));
+      toast.success('Orden eliminada');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al eliminar la orden');
+    }
+  };
+
+  const handleEdit = (order: PaymentOrder) => {
+    // Por ahora, abrir el modal de visualización donde se podrá editar
+    setViewingOrder(order);
   };
 
   const handlePrint = () => {
@@ -243,6 +262,24 @@ export default function PaymentOrdersPage() {
                             title="Cancelar orden"
                           >
                             <X size={18} />
+                          </button>
+                        )}
+                        {(order.status === 'AUTHORIZED' || order.status === 'DRAFT') && (
+                          <button
+                            onClick={() => handleEdit(order)}
+                            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Editar orden"
+                          >
+                            <Edit2 size={18} />
+                          </button>
+                        )}
+                        {(order.status === 'DRAFT' || order.status === 'CANCELLED' || order.status === 'AUTHORIZED') && (
+                          <button
+                            onClick={() => handleDelete(order)}
+                            className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Eliminar orden"
+                          >
+                            <Trash2 size={18} />
                           </button>
                         )}
                       </div>

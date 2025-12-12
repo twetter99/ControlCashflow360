@@ -216,9 +216,9 @@ export async function DELETE(
       );
     }
 
-    if (data?.status !== 'DRAFT' && data?.status !== 'CANCELLED') {
+    if (data?.status === 'EXECUTED') {
       return NextResponse.json(
-        { success: false, error: 'Solo se pueden eliminar órdenes en borrador o canceladas' },
+        { success: false, error: 'No se pueden eliminar órdenes ya ejecutadas' },
         { status: 400 }
       );
     }
