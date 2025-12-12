@@ -133,17 +133,27 @@ export async function POST(request: NextRequest) {
     const docRef = await db.collection('payment_orders').add(orderData);
 
     // Actualizar las transacciones con referencia a esta orden
-    if (transactionIds && transactionIds.length > 0) {
+    // Usamos tanto transactionIds del body como los transactionId de cada item
+    const txIdsToUpdate = transactionIds && transactionIds.length > 0 
+      ? transactionIds 
+      : items.map((item: PaymentOrderItem) => item.transactionId).filter(Boolean);
+    
+    console.log('Actualizando transacciones con orden:', orderNumber, 'IDs:', txIdsToUpdate);
+    
+    if (txIdsToUpdate && txIdsToUpdate.length > 0) {
       const batch = db.batch();
-      for (const txId of transactionIds) {
-        const txRef = db.collection('transactions').doc(txId);
-        batch.update(txRef, {
-          paymentOrderId: docRef.id,
-          paymentOrderNumber: orderNumber,
-          updatedAt: now,
-        });
+      for (const txId of txIdsToUpdate) {
+        if (txId) {
+          const txRef = db.collection('transactions').doc(txId);
+          batch.update(txRef, {
+            paymentOrderId: docRef.id,
+            paymentOrderNumber: orderNumber,
+            updatedAt: now,
+          });
+        }
       }
       await batch.commit();
+      console.log('Batch commit completado para', txIdsToUpdate.length, 'transacciones');
     }
 
     return NextResponse.json({

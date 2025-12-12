@@ -40,6 +40,9 @@ function mapToTransaction(id: string, data: FirebaseFirestore.DocumentData): Tra
     supplierBankAccount: data.supplierBankAccount || undefined,
     paymentMethod: data.paymentMethod || undefined,
     chargeAccountId: data.chargeAccountId || undefined,
+    // Campos para órdenes de pago
+    paymentOrderId: data.paymentOrderId || undefined,
+    paymentOrderNumber: data.paymentOrderNumber || undefined,
     // Campos de recurrencia
     recurrence: data.recurrence || 'NONE',
     certainty: data.certainty || 'HIGH',
