@@ -345,45 +345,125 @@ export function PaymentOrderModal({
                 </div>
               )}
 
-              {/* Detalle de pagos */}
+              {/* Detalle de pagos - Agrupado por cuenta de cargo */}
               <div className="mb-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                   <FileText size={18} />
                   Detalle de Pagos
                 </h2>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="text-left p-2 font-semibold">Beneficiario</th>
-                      <th className="text-left p-2 font-semibold">Concepto</th>
-                      <th className="text-left p-2 font-semibold">IBAN Destino</th>
-                      <th className="text-left p-2 font-semibold">Vto.</th>
-                      <th className="text-right p-2 font-semibold">Importe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {createdOrder.items.map((item, idx) => (
-                      <tr key={idx} className="border-b">
-                        <td className="p-2">
-                          <p className="font-medium">{item.thirdPartyName}</p>
-                          {item.supplierInvoiceNumber && (
-                            <p className="text-xs text-gray-500">Fact: {item.supplierInvoiceNumber}</p>
-                          )}
-                        </td>
-                        <td className="p-2 text-gray-700">{item.description}</td>
-                        <td className="p-2 font-mono text-xs">{formatIBAN(item.supplierBankAccount)}</td>
-                        <td className="p-2">{formatDate(item.dueDate)}</td>
-                        <td className="p-2 text-right font-semibold text-red-600">{formatCurrency(item.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-gray-100 font-bold">
-                      <td colSpan={4} className="p-2 text-right">TOTAL A PAGAR:</td>
-                      <td className="p-2 text-right text-lg text-red-600">{formatCurrency(createdOrder.totalAmount)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                
+                {/* Agrupar items por cuenta de cargo */}
+                {(() => {
+                  // Agrupar por chargeAccountId
+                  const groupedItems = createdOrder.items.reduce((acc, item) => {
+                    const accountId = item.chargeAccountId || 'sin-cuenta';
+                    if (!acc[accountId]) {
+                      acc[accountId] = [];
+                    }
+                    acc[accountId].push(item);
+                    return acc;
+                  }, {} as Record<string, typeof createdOrder.items>);
+
+                  const accountGroups = Object.entries(groupedItems).map(([accountId, items]) => {
+                    const account = accounts.find(a => a.id === accountId);
+                    const company = account ? companies.find(c => c.id === account.companyId) : null;
+                    const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+                    return { accountId, account, company, items, subtotal };
+                  });
+
+                  return (
+                    <>
+                      {accountGroups.map((group, groupIdx) => (
+                        <div key={group.accountId} className={groupIdx > 0 ? 'mt-6' : ''}>
+                          {/* Cabecera del grupo - Banco y Empresa */}
+                          <div className="bg-primary-50 border border-primary-200 rounded-t-lg p-3 flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-2">
+                                <CreditCard size={16} className="text-primary-600" />
+                                <span className="font-semibold text-primary-800">
+                                  {group.account ? `${group.account.bankName} - ${group.account.alias}` : 'Sin cuenta asignada'}
+                                </span>
+                              </div>
+                              {group.company && (
+                                <div className="flex items-center gap-2 text-sm text-gray-600">
+                                  <Building2 size={14} />
+                                  <span>{group.company.name}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-sm">
+                              <span className="text-gray-500">{group.items.length} pago(s)</span>
+                            </div>
+                          </div>
+                          
+                          {/* Tabla de pagos del grupo */}
+                          <table className="w-full text-sm border border-t-0 border-gray-200 rounded-b-lg overflow-hidden">
+                            <thead>
+                              <tr className="bg-gray-100">
+                                <th className="text-left p-2 font-semibold">Beneficiario</th>
+                                <th className="text-left p-2 font-semibold">Concepto</th>
+                                <th className="text-left p-2 font-semibold">IBAN Destino</th>
+                                <th className="text-left p-2 font-semibold">Vto.</th>
+                                <th className="text-right p-2 font-semibold">Importe</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {group.items.map((item, idx) => (
+                                <tr key={idx} className="border-b border-gray-100">
+                                  <td className="p-2">
+                                    <p className="font-medium">{item.thirdPartyName}</p>
+                                    {item.supplierInvoiceNumber && (
+                                      <p className="text-xs text-gray-500">Fact: {item.supplierInvoiceNumber}</p>
+                                    )}
+                                  </td>
+                                  <td className="p-2 text-gray-700">{item.description}</td>
+                                  <td className="p-2 font-mono text-xs">{formatIBAN(item.supplierBankAccount)}</td>
+                                  <td className="p-2">{formatDate(item.dueDate)}</td>
+                                  <td className="p-2 text-right font-semibold text-red-600">{formatCurrency(item.amount)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-gray-50 font-semibold">
+                                <td colSpan={4} className="p-2 text-right text-gray-700">Subtotal:</td>
+                                <td className="p-2 text-right text-red-600">{formatCurrency(group.subtotal)}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      ))}
+
+                      {/* Resumen por banco */}
+                      <div className="mt-6 bg-gray-100 rounded-lg p-4">
+                        <h3 className="text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide">Resumen por Banco</h3>
+                        <div className="space-y-2">
+                          {accountGroups.map((group) => (
+                            <div key={group.accountId} className="flex items-center justify-between text-sm">
+                              <div className="flex items-center gap-2">
+                                <CreditCard size={14} className="text-gray-500" />
+                                <span className="font-medium">
+                                  {group.account ? group.account.bankName : 'Sin cuenta'}
+                                  {group.account?.alias && ` - ${group.account.alias}`}
+                                </span>
+                                {group.company && (
+                                  <span className="text-gray-500">({group.company.name})</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="text-gray-500">{group.items.length} pago(s)</span>
+                                <span className="font-bold text-red-600">{formatCurrency(group.subtotal)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="border-t border-gray-300 mt-3 pt-3 flex justify-between items-center">
+                          <span className="font-bold text-gray-800">TOTAL A PAGAR:</span>
+                          <span className="text-xl font-bold text-red-600">{formatCurrency(createdOrder.totalAmount)}</span>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Pie con firmas */}
