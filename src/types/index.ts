@@ -548,18 +548,7 @@ export interface Scenario {
 // Colección: alerts (Alertas Generadas)
 // ============================================
 
-export interface Alert {
-  id: string;
-  configId: string;
-  type: AlertType;
-  companyId?: string;
-  message: string;
-  severity: RiskLevel;
-  value: number; // Valor que disparó la alerta
-  threshold: number;
-  isRead: boolean;
-  createdAt: Date;
-}
+// NOTA: Alert definida más abajo con campos extendidos
 
 // ============================================
 // Colección: users (Usuarios extendidos)
