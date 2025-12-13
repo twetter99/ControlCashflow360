@@ -75,7 +75,7 @@ export default function AlertsPage() {
   // Cargar empresas y configuraciones al montar
   const loadData = useCallback(async () => {
     try {
-      console.log('[Alerts] Cargando datos...');
+      console.log('[Alerts] === Cargando datos ===');
       const [companiesData, configsData] = await Promise.all([
         companiesApi.getAll(),
         alertsApi.getAll(),

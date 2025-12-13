@@ -542,18 +542,7 @@ export interface Scenario {
 // Colección: alert_configs (Configuración de Alertas)
 // ============================================
 
-export interface AlertConfig {
-  id: string;
-  userId: string;
-  companyId?: string; // Opcional, si es para empresa específica
-  type: AlertType;
-  threshold: number;
-  enabled: boolean;
-  notifyEmail: boolean;
-  notifyInApp: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
+// NOTA: AlertConfig definida más abajo con campos extendidos
 
 // ============================================
 // Colección: alerts (Alertas Generadas)
