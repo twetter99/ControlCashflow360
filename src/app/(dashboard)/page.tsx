@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui';
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi, creditCardsApi, companiesApi } from '@/lib/api-client';
-import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard, Company } from '@/types';
+import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi, creditCardsApi, companiesApi, alertsApi } from '@/lib/api-client';
+import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard, Company, AlertConfig } from '@/types';
 import { PaymentOrderModal } from '@/components/PaymentOrderModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { CreditCard as CreditCardIcon } from 'lucide-react';
@@ -99,6 +99,7 @@ export default function DashboardPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accountHolds, setAccountHolds] = useState<AccountHold[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [alertConfigs, setAlertConfigs] = useState<AlertConfig[]>([]);
   
   // Objetivo mensual de ingresos (Sistema 3 Capas)
   const [monthlyIncomeGoal, setMonthlyIncomeGoal] = useState<number>(0);
@@ -180,13 +181,14 @@ export default function DashboardPage() {
         }
         
         // Luego cargar todos los datos
-        const [accountsData, creditLinesData, creditCardsData, transactionsData, holdsData, companiesData] = await Promise.all([
+        const [accountsData, creditLinesData, creditCardsData, transactionsData, holdsData, companiesData, alertConfigsData] = await Promise.all([
           accountsApi.getAll(),
           creditLinesApi.getAll(),
           creditCardsApi.getAll(),
           transactionsApi.getAll(),
           accountHoldsApi.getAll(undefined, 'ACTIVE'),
-          companiesApi.getAll()
+          companiesApi.getAll(),
+          alertsApi.getAll().catch(() => [] as AlertConfig[]) // Si falla, array vacío
         ]);
         setAccounts(accountsData);
         setCreditLines(creditLinesData);
@@ -194,6 +196,7 @@ export default function DashboardPage() {
         setTransactions(transactionsData);
         setAccountHolds(holdsData);
         setCompanies(companiesData);
+        setAlertConfigs(alertConfigsData);
       } catch (error) {
         console.error('Error cargando datos del dashboard:', error);
       } finally {
@@ -585,21 +588,84 @@ export default function DashboardPage() {
     .filter(tx => selectedPaymentIds.has(tx.id))
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  // Alertas
+  // Alertas basadas en configuraciones del usuario
   const alerts: { id: string; type: string; message: string; severity: string }[] = [];
   
+  // Helper para obtener umbral de una config
+  const getThreshold = (type: string, defaultValue: number): number => {
+    const config = alertConfigs.find(c => c.type === type && c.enabled);
+    return config ? config.threshold : defaultValue;
+  };
+
+  // Helper para verificar si una alerta está habilitada
+  const isAlertEnabled = (type: string): boolean => {
+    const config = alertConfigs.find(c => c.type === type);
+    return config ? config.enabled : true; // Si no hay config, usar default habilitado
+  };
+  
   const firstBucket = forecastBuckets[0];
-  if (firstBucket && firstBucket.cumulativeBalance < 0) {
-    alerts.push({ id: '1', type: 'CRITICAL', message: `Saldo proyectado negativo en ${firstBucket.label}`, severity: 'HIGH' });
+  
+  // Alerta: Liquidez mínima (saldo proyectado bajo umbral)
+  if (isAlertEnabled('MIN_LIQUIDITY')) {
+    const minLiquidityThreshold = getThreshold('MIN_LIQUIDITY', 0);
+    if (firstBucket && firstBucket.cumulativeBalance < minLiquidityThreshold) {
+      const severity = firstBucket.cumulativeBalance < 0 ? 'HIGH' : 'MEDIUM';
+      alerts.push({ 
+        id: 'MIN_LIQUIDITY', 
+        type: 'MIN_LIQUIDITY', 
+        message: firstBucket.cumulativeBalance < 0 
+          ? `Saldo proyectado negativo en ${firstBucket.label}` 
+          : `Liquidez bajo umbral mínimo (${formatCurrency(minLiquidityThreshold)}) en ${firstBucket.label}`,
+        severity 
+      });
+    }
   }
-  if (runway < 30) {
-    alerts.push({ id: '2', type: 'RUNWAY', message: `Runway crítico: ${runway} días`, severity: 'HIGH' });
+  
+  // Alerta: Runway crítico
+  if (isAlertEnabled('CRITICAL_RUNWAY')) {
+    const runwayThreshold = getThreshold('CRITICAL_RUNWAY', 30);
+    if (runway < runwayThreshold) {
+      alerts.push({ 
+        id: 'CRITICAL_RUNWAY', 
+        type: 'CRITICAL_RUNWAY', 
+        message: `Runway crítico: ${runway} días (umbral: ${runwayThreshold})`, 
+        severity: 'HIGH' 
+      });
+    }
   }
-  if (filteredAccounts.some(acc => {
-    const hoursDiff = (today.getTime() - new Date(acc.lastUpdateDate).getTime()) / (1000 * 60 * 60);
-    return hoursDiff > 48;
-  })) {
-    alerts.push({ id: '3', type: 'STALE', message: 'Hay cuentas sin actualizar hace más de 48h', severity: 'MEDIUM' });
+  
+  // Alerta: Datos sin actualizar
+  if (isAlertEnabled('STALE_DATA')) {
+    const staleHoursThreshold = getThreshold('STALE_DATA', 48);
+    const staleAccounts = filteredAccounts.filter(acc => {
+      const hoursDiff = (today.getTime() - new Date(acc.lastUpdateDate).getTime()) / (1000 * 60 * 60);
+      return hoursDiff > staleHoursThreshold;
+    });
+    if (staleAccounts.length > 0) {
+      alerts.push({ 
+        id: 'STALE_DATA', 
+        type: 'STALE_DATA', 
+        message: `Hay ${staleAccounts.length} cuenta(s) sin actualizar hace más de ${staleHoursThreshold}h`, 
+        severity: 'MEDIUM' 
+      });
+    }
+  }
+  
+  // Alerta: Líneas de crédito con bajo disponible
+  if (isAlertEnabled('LOW_CREDIT_LINE')) {
+    const lowCreditThreshold = getThreshold('LOW_CREDIT_LINE', 20); // % del límite
+    const lowCreditLines = filteredCreditLines.filter(cl => {
+      const availablePercent = (cl.availableAmount / cl.limit) * 100;
+      return availablePercent < lowCreditThreshold;
+    });
+    if (lowCreditLines.length > 0) {
+      alerts.push({ 
+        id: 'LOW_CREDIT_LINE', 
+        type: 'LOW_CREDIT_LINE', 
+        message: `${lowCreditLines.length} línea(s) de crédito con <${lowCreditThreshold}% disponible`, 
+        severity: 'MEDIUM' 
+      });
+    }
   }
 
   const getRiskLevel = (bucket: ForecastBucket) => {
