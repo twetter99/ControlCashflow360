@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { 
   Bell,
@@ -15,6 +15,8 @@ import {
   X
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { companiesApi } from '@/lib/api-client';
+import { Company } from '@/types';
 
 // Tipos de alertas
 const alertTypes = [
@@ -63,6 +65,23 @@ const mockActiveAlerts = [
 export default function AlertsPage() {
   const [showForm, setShowForm] = useState(false);
   const [selectedType, setSelectedType] = useState('');
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
+
+  // Cargar empresas al montar
+  useEffect(() => {
+    const loadCompanies = async () => {
+      try {
+        const data = await companiesApi.getAll();
+        setCompanies(data);
+      } catch (error) {
+        console.error('Error cargando empresas:', error);
+      } finally {
+        setLoadingCompanies(false);
+      }
+    };
+    loadCompanies();
+  }, []);
 
   const getAlertIcon = (type: string) => {
     switch (type) {
@@ -270,10 +289,13 @@ export default function AlertsPage() {
               )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
-                <select className="w-full border rounded-lg px-4 py-3">
+                <select className="w-full border rounded-lg px-4 py-3" disabled={loadingCompanies}>
                   <option value="">Todas las empresas</option>
-                  <option value="winfin_sistemas">WINFIN Sistemas</option>
-                  <option value="winfin_instalaciones">WINFIN Instalaciones</option>
+                  {companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {company.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="flex items-center space-x-4">
