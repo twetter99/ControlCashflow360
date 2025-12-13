@@ -75,14 +75,17 @@ export default function AlertsPage() {
   // Cargar empresas y configuraciones al montar
   const loadData = useCallback(async () => {
     try {
+      console.log('[Alerts] Cargando datos...');
       const [companiesData, configsData] = await Promise.all([
         companiesApi.getAll(),
         alertsApi.getAll(),
       ]);
+      console.log('[Alerts] Empresas cargadas:', companiesData.length);
+      console.log('[Alerts] Configs cargadas:', configsData);
       setCompanies(companiesData);
       setAlertConfigs(configsData);
     } catch (error) {
-      console.error('Error cargando datos:', error);
+      console.error('[Alerts] Error cargando datos:', error);
     } finally {
       setLoadingCompanies(false);
       setLoadingConfigs(false);
@@ -142,16 +145,21 @@ export default function AlertsPage() {
         notifyByEmail,
       };
 
+      console.log('[Alerts] Guardando config:', data);
+      console.log('[Alerts] Editando:', editingConfig?.id);
+
       if (editingConfig) {
-        await alertsApi.update(editingConfig.id, data);
+        const result = await alertsApi.update(editingConfig.id, data);
+        console.log('[Alerts] Resultado update:', result);
       } else {
-        await alertsApi.create(data);
+        const result = await alertsApi.create(data);
+        console.log('[Alerts] Resultado create:', result);
       }
 
       await loadData(); // Recargar lista
       closeForm();
     } catch (error) {
-      console.error('Error guardando:', error);
+      console.error('[Alerts] Error guardando:', error);
       alert('Error al guardar la configuración');
     } finally {
       setSaving(false);

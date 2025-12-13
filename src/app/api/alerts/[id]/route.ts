@@ -71,15 +71,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const body = await request.json();
     
+    console.log('[API Alerts PUT] ID:', id);
+    console.log('[API Alerts PUT] Body:', JSON.stringify(body));
+    
     const db = getAdminDb();
     const docRef = db.collection(COLLECTION).doc(id);
     const doc = await docRef.get();
 
     if (!doc.exists) {
+      console.log('[API Alerts PUT] Doc not found');
       return errorResponse('Configuración de alerta no encontrada', 404, 'NOT_FOUND');
     }
 
     const existingData = doc.data()!;
+    console.log('[API Alerts PUT] Existing data:', JSON.stringify(existingData));
     
     // Verificar que pertenece al usuario
     if (existingData.userId !== userId) {
@@ -126,11 +131,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (body.notifyInApp !== undefined) updateData.notifyInApp = body.notifyInApp;
     if (body.notifyByEmail !== undefined) updateData.notifyByEmail = body.notifyByEmail;
 
+    console.log('[API Alerts PUT] Update data:', JSON.stringify(updateData));
+
     await docRef.update(updateData);
 
     // Obtener documento actualizado
     const updatedDoc = await docRef.get();
     const updatedData = updatedDoc.data()!;
+    
+    console.log('[API Alerts PUT] Updated data:', JSON.stringify(updatedData));
 
     const config: AlertConfig = {
       id: updatedDoc.id,
