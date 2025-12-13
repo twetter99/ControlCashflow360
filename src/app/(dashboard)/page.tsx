@@ -655,7 +655,7 @@ export default function DashboardPage() {
   if (isAlertEnabled('LOW_CREDIT_LINE')) {
     const lowCreditThreshold = getThreshold('LOW_CREDIT_LINE', 20); // % del límite
     const lowCreditLines = filteredCreditLines.filter(cl => {
-      const availablePercent = (cl.availableAmount / cl.limit) * 100;
+      const availablePercent = (cl.available / cl.creditLimit) * 100;
       return availablePercent < lowCreditThreshold;
     });
     if (lowCreditLines.length > 0) {
