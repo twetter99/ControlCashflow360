@@ -17,7 +17,7 @@ import {
   Edit2,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { companiesApi } from '@/lib/api-client';
+import { companiesApi, alertsApi } from '@/lib/api-client';
 import { Company, AlertConfig, AlertType } from '@/types';
 
 // Tipos de alertas
@@ -75,14 +75,12 @@ export default function AlertsPage() {
   // Cargar empresas y configuraciones al montar
   const loadData = useCallback(async () => {
     try {
-      const [companiesData, configsResponse] = await Promise.all([
+      const [companiesData, configsData] = await Promise.all([
         companiesApi.getAll(),
-        fetch('/api/alerts').then(res => res.json()),
+        alertsApi.getAll(),
       ]);
       setCompanies(companiesData);
-      if (configsResponse && !configsResponse.error) {
-        setAlertConfigs(configsResponse);
-      }
+      setAlertConfigs(configsData);
     } catch (error) {
       console.error('Error cargando datos:', error);
     } finally {
@@ -136,30 +134,22 @@ export default function AlertsPage() {
 
     setSaving(true);
     try {
-      const body = {
-        type: selectedType,
+      const data = {
+        type: selectedType as AlertType,
         threshold: Number(threshold),
-        companyId: selectedCompanyId || null,
+        companyId: selectedCompanyId || undefined,
         notifyInApp,
         notifyByEmail,
       };
 
-      const url = editingConfig ? `/api/alerts/${editingConfig.id}` : '/api/alerts';
-      const method = editingConfig ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (response.ok) {
-        await loadData(); // Recargar lista
-        closeForm();
+      if (editingConfig) {
+        await alertsApi.update(editingConfig.id, data);
       } else {
-        const error = await response.json();
-        alert(error.error || 'Error al guardar');
+        await alertsApi.create(data);
       }
+
+      await loadData(); // Recargar lista
+      closeForm();
     } catch (error) {
       console.error('Error guardando:', error);
       alert('Error al guardar la configuración');
@@ -174,14 +164,11 @@ export default function AlertsPage() {
 
     setDeleting(id);
     try {
-      const response = await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
-      if (response.ok) {
-        await loadData();
-      } else {
-        alert('Error al eliminar');
-      }
+      await alertsApi.delete(id);
+      await loadData();
     } catch (error) {
       console.error('Error eliminando:', error);
+      alert('Error al eliminar la configuración');
     } finally {
       setDeleting(null);
     }
@@ -190,10 +177,8 @@ export default function AlertsPage() {
   // Toggle enabled/disabled
   const handleToggleEnabled = async (id: string) => {
     try {
-      const response = await fetch(`/api/alerts/${id}`, { method: 'PATCH' });
-      if (response.ok) {
-        await loadData();
-      }
+      await alertsApi.toggle(id);
+      await loadData();
     } catch (error) {
       console.error('Error toggling:', error);
     }

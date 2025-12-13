@@ -1049,3 +1049,63 @@ export const paymentOrdersApi = {
     });
   },
 };
+
+// ============================================
+// ALERTS API
+// ============================================
+
+import { AlertConfig, AlertType, CreateAlertConfigInput, UpdateAlertConfigInput } from '@/types';
+
+export const alertsApi = {
+  /**
+   * Obtener todas las configuraciones de alertas
+   */
+  async getAll(): Promise<AlertConfig[]> {
+    return apiRequest<AlertConfig[]>('/api/alerts');
+  },
+
+  /**
+   * Obtener una configuración por ID
+   */
+  async getById(id: string): Promise<AlertConfig> {
+    return apiRequest<AlertConfig>(`/api/alerts/${id}`);
+  },
+
+  /**
+   * Crear nueva configuración de alerta
+   */
+  async create(data: CreateAlertConfigInput): Promise<AlertConfig> {
+    return apiRequest<AlertConfig>('/api/alerts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar configuración de alerta
+   */
+  async update(id: string, data: UpdateAlertConfigInput): Promise<AlertConfig> {
+    return apiRequest<AlertConfig>(`/api/alerts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Toggle enabled/disabled
+   */
+  async toggle(id: string): Promise<AlertConfig> {
+    return apiRequest<AlertConfig>(`/api/alerts/${id}`, {
+      method: 'PATCH',
+    });
+  },
+
+  /**
+   * Eliminar configuración
+   */
+  async delete(id: string): Promise<{ deleted: boolean; id: string }> {
+    return apiRequest<{ deleted: boolean; id: string }>(`/api/alerts/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
