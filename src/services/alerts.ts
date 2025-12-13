@@ -14,7 +14,7 @@ import {
   QueryConstraint,
 } from 'firebase/firestore';
 import { getDb } from '@/lib/firebase/config';
-import { AlertConfig, Alert, AlertType } from '@/types';
+import { AlertConfig, Alert, AlertType, CreateAlertConfigInput, UpdateAlertConfigInput } from '@/types';
 
 const CONFIGS_COLLECTION = 'alert_configs';
 const ALERTS_COLLECTION = 'alerts';
@@ -25,15 +25,16 @@ const ALERTS_COLLECTION = 'alerts';
 function documentToAlertConfig(id: string, data: DocumentData): AlertConfig {
   return {
     id,
-    userId: data.userId,
-    companyId: data.companyId,
-    type: data.type,
-    threshold: data.threshold,
-    enabled: data.enabled,
-    notifyEmail: data.notifyEmail,
-    notifyInApp: data.notifyInApp,
-    createdAt: data.createdAt?.toDate(),
-    updatedAt: data.updatedAt?.toDate(),
+    userId: data.userId || '',
+    type: data.type as AlertType,
+    threshold: data.threshold || 0,
+    companyId: data.companyId || undefined,
+    companyName: data.companyName || (data.companyId ? undefined : 'Todas las empresas'),
+    enabled: data.enabled ?? true,
+    notifyInApp: data.notifyInApp ?? true,
+    notifyByEmail: data.notifyByEmail ?? data.notifyEmail ?? false,
+    createdAt: data.createdAt?.toDate() || new Date(),
+    updatedAt: data.updatedAt?.toDate() || new Date(),
   };
 }
 
@@ -43,15 +44,18 @@ function documentToAlertConfig(id: string, data: DocumentData): AlertConfig {
 function documentToAlert(id: string, data: DocumentData): Alert {
   return {
     id,
-    configId: data.configId,
-    type: data.type,
-    companyId: data.companyId,
-    message: data.message,
-    severity: data.severity,
-    value: data.value,
-    threshold: data.threshold,
-    isRead: data.isRead,
-    createdAt: data.createdAt?.toDate(),
+    userId: data.userId || '',
+    alertConfigId: data.alertConfigId || data.configId || '',
+    type: data.type as AlertType,
+    message: data.message || '',
+    severity: data.severity || 'MEDIUM',
+    companyId: data.companyId || undefined,
+    companyName: data.companyName || undefined,
+    isRead: data.isRead ?? false,
+    isDismissed: data.isDismissed ?? false,
+    createdAt: data.createdAt?.toDate() || new Date(),
+    readAt: data.readAt?.toDate() || undefined,
+    dismissedAt: data.dismissedAt?.toDate() || undefined,
   };
 }
 
@@ -97,20 +101,40 @@ export async function getAlertConfigById(id: string): Promise<AlertConfig | null
  * Crear configuración de alerta
  */
 export async function createAlertConfig(
-  data: Omit<AlertConfig, 'id' | 'createdAt' | 'updatedAt'>
+  userId: string,
+  input: CreateAlertConfigInput,
+  companyName?: string
 ): Promise<AlertConfig> {
   const db = getDb();
-  const docRef = await addDoc(collection(db, CONFIGS_COLLECTION), {
-    ...data,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  });
+  const now = Timestamp.now();
+  
+  const docData = {
+    userId,
+    type: input.type,
+    threshold: input.threshold,
+    companyId: input.companyId || null,
+    companyName: input.companyId ? companyName : 'Todas las empresas',
+    enabled: input.enabled ?? true,
+    notifyInApp: input.notifyInApp ?? true,
+    notifyByEmail: input.notifyByEmail ?? false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  
+  const docRef = await addDoc(collection(db, CONFIGS_COLLECTION), docData);
   
   return {
-    ...data,
     id: docRef.id,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    userId,
+    type: input.type,
+    threshold: input.threshold,
+    companyId: input.companyId || undefined,
+    companyName: input.companyId ? companyName : 'Todas las empresas',
+    enabled: input.enabled ?? true,
+    notifyInApp: input.notifyInApp ?? true,
+    notifyByEmail: input.notifyByEmail ?? false,
+    createdAt: now.toDate(),
+    updatedAt: now.toDate(),
   };
 }
 
@@ -119,14 +143,40 @@ export async function createAlertConfig(
  */
 export async function updateAlertConfig(
   id: string,
-  data: Partial<Omit<AlertConfig, 'id' | 'createdAt'>>
-): Promise<void> {
+  input: UpdateAlertConfigInput,
+  companyName?: string
+): Promise<AlertConfig> {
   const db = getDb();
   const docRef = doc(db, CONFIGS_COLLECTION, id);
-  await updateDoc(docRef, {
-    ...data,
+  
+  const existing = await getDoc(docRef);
+  if (!existing.exists()) {
+    throw new Error('Configuración de alerta no encontrada');
+  }
+  
+  const updateData: Record<string, unknown> = {
     updatedAt: Timestamp.now(),
-  });
+  };
+  
+  if (input.type !== undefined) updateData.type = input.type;
+  if (input.threshold !== undefined) updateData.threshold = input.threshold;
+  if (input.companyId !== undefined) {
+    updateData.companyId = input.companyId || null;
+    updateData.companyName = input.companyId ? companyName : 'Todas las empresas';
+  }
+  if (input.enabled !== undefined) updateData.enabled = input.enabled;
+  if (input.notifyInApp !== undefined) updateData.notifyInApp = input.notifyInApp;
+  if (input.notifyByEmail !== undefined) updateData.notifyByEmail = input.notifyByEmail;
+  
+  await updateDoc(docRef, updateData);
+  
+  // Obtener y retornar la configuración actualizada
+  const updated = await getAlertConfigById(id);
+  if (!updated) {
+    throw new Error('Error al obtener configuración actualizada');
+  }
+  
+  return updated;
 }
 
 /**

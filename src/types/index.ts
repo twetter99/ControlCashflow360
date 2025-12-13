@@ -767,3 +767,61 @@ export interface CreatePaymentOrderInput {
   transactionIds: string[];
   notesForFinance?: string;
 }
+
+// ============================================
+// Colección: alert_configs (Configuración de Alertas)
+// ============================================
+
+export type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export interface AlertConfig {
+  id: string;
+  userId: string;
+  type: AlertType;
+  threshold: number;            // Umbral según tipo (€, días, %, horas)
+  companyId?: string;           // null = todas las empresas
+  companyName?: string;         // Nombre para mostrar
+  enabled: boolean;
+  notifyInApp: boolean;
+  notifyByEmail: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateAlertConfigInput {
+  type: AlertType;
+  threshold: number;
+  companyId?: string;
+  enabled?: boolean;
+  notifyInApp?: boolean;
+  notifyByEmail?: boolean;
+}
+
+export interface UpdateAlertConfigInput {
+  type?: AlertType;
+  threshold?: number;
+  companyId?: string;
+  enabled?: boolean;
+  notifyInApp?: boolean;
+  notifyByEmail?: boolean;
+}
+
+// ============================================
+// Colección: alerts (Alertas Activas/Historial)
+// ============================================
+
+export interface Alert {
+  id: string;
+  userId: string;
+  alertConfigId: string;
+  type: AlertType;
+  message: string;
+  severity: AlertSeverity;
+  companyId?: string;
+  companyName?: string;
+  isRead: boolean;
+  isDismissed: boolean;
+  createdAt: Date;
+  readAt?: Date;
+  dismissedAt?: Date;
+}
