@@ -1378,6 +1378,7 @@ export default function DashboardPage() {
                   <th className="pb-3 font-medium">Certeza</th>
                   <th className="pb-3 font-medium">Vencimiento</th>
                   <th className="pb-3 font-medium text-right">Importe</th>
+                  <th className="pb-3 font-medium text-center w-20">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -1494,6 +1495,17 @@ export default function DashboardPage() {
                         tx.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
                       }`}>
                         {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
+                      </td>
+                      <td className="py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        {tx.type === 'EXPENSE' && tx.paymentMethod === 'DIRECT_DEBIT' && tx.status === 'PENDING' && (
+                          <button
+                            onClick={() => setDirectDebitToConfirm(tx)}
+                            className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
+                            title="Confirmar cargo del recibo"
+                          >
+                            <CheckCircle size={18} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
