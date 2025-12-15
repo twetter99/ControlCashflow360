@@ -8,6 +8,7 @@ import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHo
 import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard, Company, AlertConfig } from '@/types';
 import { PaymentOrderModal } from '@/components/PaymentOrderModal';
 import ConfirmDirectDebitModal from '@/components/ConfirmDirectDebitModal';
+import TransactionDetailModal from '@/components/TransactionDetailModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { CreditCard as CreditCardIcon } from 'lucide-react';
 import { 
@@ -1967,111 +1968,18 @@ export default function DashboardPage() {
         })()}
       </Card>
 
-      {/* Modal de detalle de transacciones */}
-      {detailModal.isOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto">
-          <div className="min-h-full flex items-start justify-center p-4 py-8">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
-              {/* Header del modal */}
-              <div className="flex items-center justify-between p-6 border-b">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    {detailModal.type === 'INCOME' ? (
-                      <TrendingUp className="text-green-600" size={24} />
-                    ) : (
-                      <TrendingDown className="text-red-600" size={24} />
-                    )}
-                    {detailModal.title}
-                  </h2>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {detailModal.monthLabel} • {detailModal.transactions.length} movimiento{detailModal.transactions.length !== 1 ? 's' : ''}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setDetailModal({ ...detailModal, isOpen: false })}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <X size={24} />
-                </button>
-              </div>
-
-              {/* Contenido del modal */}
-              <div className="p-6 max-h-[60vh] overflow-y-auto">
-                {detailModal.transactions.length === 0 ? (
-                  <p className="text-center text-gray-500 py-8">No hay transacciones</p>
-                ) : (
-                  <div className="space-y-3">
-                    {detailModal.transactions
-                      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-                      .map((tx) => (
-                        <div 
-                          key={tx.id} 
-                          className={`flex items-center justify-between p-4 rounded-lg border ${
-                            detailModal.type === 'INCOME' 
-                              ? 'bg-green-50 border-green-200' 
-                              : 'bg-red-50 border-red-200'
-                          }`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium text-gray-900 truncate">{tx.description}</p>
-                              {tx.invoiceNumber && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                  <FileText size={10} className="mr-1" />
-                                  {tx.invoiceNumber}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
-                              <span className="flex items-center gap-1">
-                                <Clock size={12} />
-                                {formatDate(tx.dueDate)}
-                              </span>
-                              {tx.thirdPartyName && (
-                                <span className="truncate">• {tx.thirdPartyName}</span>
-                              )}
-                              <span className="text-xs px-2 py-0.5 bg-gray-100 rounded">
-                                {tx.category}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="ml-4 flex-shrink-0">
-                            <span className={`text-lg font-bold ${
-                              detailModal.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                              {detailModal.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Footer del modal con total */}
-              <div className="border-t p-6 bg-gray-50 rounded-b-xl">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-700">Total</span>
-                  <span className={`text-2xl font-bold ${
-                    detailModal.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {detailModal.type === 'INCOME' ? '+' : '-'}{formatCurrency(detailModal.total)}
-                  </span>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <Link
-                    href={`/transactions?type=${detailModal.type}`}
-                    className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
-                  >
-                    Ver todas las transacciones
-                    <ArrowRight size={14} />
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal de detalle de transacciones (mejorado) */}
+      <TransactionDetailModal
+        isOpen={detailModal.isOpen}
+        onClose={() => setDetailModal({ ...detailModal, isOpen: false })}
+        title={detailModal.title}
+        type={detailModal.type}
+        transactions={detailModal.transactions}
+        total={detailModal.total}
+        monthLabel={detailModal.monthLabel}
+        accounts={accounts}
+        onConfirmDirectDebit={detailModal.type === 'EXPENSE' ? (tx) => setDirectDebitToConfirm(tx) : undefined}
+      />
 
       {/* Modal de Orden de Pago - Solo con las transacciones seleccionadas */}
       <PaymentOrderModal
