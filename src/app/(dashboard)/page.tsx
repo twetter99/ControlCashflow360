@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { accountsApi, creditLinesApi, transactionsApi, recurrencesApi, accountHoldsApi, creditCardsApi, companiesApi, alertsApi } from '@/lib/api-client';
 import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard, Company, AlertConfig } from '@/types';
 import { PaymentOrderModal } from '@/components/PaymentOrderModal';
+import ConfirmDirectDebitModal from '@/components/ConfirmDirectDebitModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { CreditCard as CreditCardIcon } from 'lucide-react';
 import { 
@@ -22,6 +23,7 @@ import {
   FileText,
   RefreshCw,
   Check,
+  CheckCircle,
   X,
   ExternalLink,
   Lock,
@@ -114,6 +116,9 @@ export default function DashboardPage() {
   const [selectedPaymentIds, setSelectedPaymentIds] = useState<Set<string>>(new Set());
   const [showPaymentOrderModal, setShowPaymentOrderModal] = useState(false);
   
+  // Modal de confirmar cargo de domiciliación
+  const [directDebitToConfirm, setDirectDebitToConfirm] = useState<Transaction | null>(null);
+  
   // Modal de detalle de transacciones
   const [detailModal, setDetailModal] = useState<TransactionDetailModal>({
     isOpen: false,
@@ -138,6 +143,41 @@ export default function DashboardPage() {
       }
       return newSet;
     });
+  };
+
+  // Handler para confirmar cargo de domiciliación
+  const handleConfirmDirectDebit = async (
+    transactionId: string, 
+    accountId: string, 
+    paidDate: Date, 
+    notes?: string
+  ) => {
+    try {
+      await transactionsApi.confirmDirectDebit(transactionId, accountId, paidDate, notes);
+      
+      // Actualizar la lista de transacciones (quitar de pendientes)
+      setTransactions(prev => prev.map(tx => 
+        tx.id === transactionId 
+          ? { ...tx, status: 'PAID', paidDate, accountId, notes: notes || tx.notes }
+          : tx
+      ));
+      
+      // Actualizar el saldo de la cuenta afectada
+      const confirmedTx = transactions.find(tx => tx.id === transactionId);
+      if (confirmedTx) {
+        setAccounts(prev => prev.map(acc => 
+          acc.id === accountId
+            ? { ...acc, currentBalance: acc.currentBalance - confirmedTx.amount }
+            : acc
+        ));
+      }
+      
+      toast.success('Cargo confirmado correctamente');
+    } catch (error) {
+      console.error('Error al confirmar domiciliación:', error);
+      toast.error('Error al confirmar el cargo');
+      throw error;
+    }
   };
 
   /**
@@ -1744,13 +1784,23 @@ export default function DashboardPage() {
                         <div className="space-y-2">
                           {need.directDebit7d.transactions.map(tx => (
                             <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
-                              <div>
+                              <div className="flex-1 min-w-0">
                                 <span className="font-medium text-gray-900">{tx.description || tx.category}</span>
                                 {tx.thirdPartyName && <span className="text-gray-500 ml-2">· {tx.thirdPartyName}</span>}
                               </div>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
                                 <span className="text-gray-500 text-xs">{formatDate(tx.dueDate)}</span>
                                 <span className="font-semibold text-red-600">-{formatCurrency(tx.amount)}</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDirectDebitToConfirm(tx);
+                                  }}
+                                  className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors"
+                                  title="Confirmar cargo en banco"
+                                >
+                                  <CheckCircle size={16} />
+                                </button>
                               </div>
                             </div>
                           ))}
@@ -1765,13 +1815,23 @@ export default function DashboardPage() {
                         <div className="space-y-2">
                           {need.directDebit15d.transactions.map(tx => (
                             <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
-                              <div>
+                              <div className="flex-1 min-w-0">
                                 <span className="font-medium text-gray-900">{tx.description || tx.category}</span>
                                 {tx.thirdPartyName && <span className="text-gray-500 ml-2">· {tx.thirdPartyName}</span>}
                               </div>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
                                 <span className="text-gray-500 text-xs">{formatDate(tx.dueDate)}</span>
                                 <span className="font-semibold text-red-600">-{formatCurrency(tx.amount)}</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDirectDebitToConfirm(tx);
+                                  }}
+                                  className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors"
+                                  title="Confirmar cargo en banco"
+                                >
+                                  <CheckCircle size={16} />
+                                </button>
                               </div>
                             </div>
                           ))}
@@ -1788,13 +1848,23 @@ export default function DashboardPage() {
                         <div className="space-y-2">
                           {need.directDebit30d.transactions.map(tx => (
                             <div key={tx.id} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1.5">
-                              <div>
+                              <div className="flex-1 min-w-0">
                                 <span className="font-medium text-gray-900">{tx.description || tx.category}</span>
                                 {tx.thirdPartyName && <span className="text-gray-500 ml-2">· {tx.thirdPartyName}</span>}
                               </div>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
                                 <span className="text-gray-500 text-xs">{formatDate(tx.dueDate)}</span>
                                 <span className="font-semibold text-red-600">-{formatCurrency(tx.amount)}</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDirectDebitToConfirm(tx);
+                                  }}
+                                  className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors"
+                                  title="Confirmar cargo en banco"
+                                >
+                                  <CheckCircle size={16} />
+                                </button>
                               </div>
                             </div>
                           ))}
@@ -2003,6 +2073,15 @@ export default function DashboardPage() {
           toast.success(`Orden ${order.orderNumber} generada correctamente`);
           setSelectedPaymentIds(new Set());
         }}
+      />
+
+      {/* Modal de Confirmar Cargo de Domiciliación */}
+      <ConfirmDirectDebitModal
+        isOpen={directDebitToConfirm !== null}
+        onClose={() => setDirectDebitToConfirm(null)}
+        transaction={directDebitToConfirm}
+        accounts={accounts}
+        onConfirm={handleConfirmDirectDebit}
       />
 
       <Toaster position="top-right" />

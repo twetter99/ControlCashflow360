@@ -216,11 +216,12 @@ export const UpdateTransactionSchema = z.object({
 
 // Schema para acciones especiales de transacción
 export const TransactionActionSchema = z.object({
-  action: z.enum(['markAsPaid', 'cancel', 'reactivate']),
+  action: z.enum(['markAsPaid', 'cancel', 'reactivate', 'confirmDirectDebit']),
   paidDate: z.string()
     .transform(val => new Date(val))
     .optional(),
   accountId: z.string().min(1).optional(),
+  notes: z.string().max(500).optional(), // Notas/comentarios al confirmar cargo
 });
 
 // ============================================

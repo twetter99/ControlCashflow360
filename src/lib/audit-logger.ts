@@ -16,6 +16,7 @@ export type AuditAction =
   | 'EXECUTE'
   | 'CANCEL'
   | 'REACTIVATE'
+  | 'CONFIRM_DIRECT_DEBIT'
   | 'LOGIN'
   | 'LOGOUT'
   | 'EXPORT'
@@ -198,7 +199,7 @@ export async function logDelete(
  */
 export async function logTransactionAction(
   userId: string,
-  action: 'APPROVE' | 'REJECT' | 'EXECUTE' | 'CANCEL' | 'REACTIVATE',
+  action: 'APPROVE' | 'REJECT' | 'EXECUTE' | 'CANCEL' | 'REACTIVATE' | 'CONFIRM_DIRECT_DEBIT',
   transactionId: string,
   details?: Record<string, unknown>,
   options?: Partial<AuditLogOptions>

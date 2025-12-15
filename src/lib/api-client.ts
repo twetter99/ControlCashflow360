@@ -392,6 +392,27 @@ export const transactionsApi = {
   },
 
   /**
+   * Confirmar cargo de domiciliación bancaria
+   * Marca como pagada y descuenta del saldo de la cuenta especificada
+   */
+  async confirmDirectDebit(
+    id: string, 
+    accountId: string, 
+    paidDate?: Date, 
+    notes?: string
+  ): Promise<Transaction> {
+    return apiRequest<Transaction>(`/api/transactions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ 
+        action: 'confirmDirectDebit',
+        accountId,
+        paidDate: paidDate?.toISOString(),
+        notes
+      }),
+    });
+  },
+
+  /**
    * Actualizar importe en cascada para transacciones similares
    * Útil para transacciones recurrentes que no tienen recurrenceId
    */

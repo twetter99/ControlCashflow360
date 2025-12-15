@@ -412,6 +412,60 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         amount: existingData.amount,
         previousStatus: existingData.status,
       }, { entityName: existingData.description || `Reactivación - ${existingData.amount}` });
+    } else if (body.action === 'confirmDirectDebit') {
+      // Confirmar cargo de domiciliación bancaria
+      if (existingData.status === 'PAID') {
+        return errorResponse('La transacción ya está pagada', 400, 'ALREADY_PAID');
+      }
+
+      if (existingData.paymentMethod !== 'DIRECT_DEBIT') {
+        return errorResponse('Esta transacción no es una domiciliación', 400, 'NOT_DIRECT_DEBIT');
+      }
+
+      // La cuenta es obligatoria para confirmar domiciliación
+      const accountId = body.accountId;
+      if (!accountId) {
+        return errorResponse('Debe especificar la cuenta donde se cargó el recibo', 400, 'ACCOUNT_REQUIRED');
+      }
+
+      // Verificar que la cuenta existe y pertenece al usuario
+      const accountDoc = await db.collection('accounts').doc(accountId).get();
+      if (!accountDoc.exists || accountDoc.data()?.userId !== userId) {
+        return errorResponse('Cuenta no encontrada o sin permiso', 404, 'ACCOUNT_NOT_FOUND');
+      }
+
+      updateData.status = 'PAID';
+      updateData.paidDate = body.paidDate 
+        ? Timestamp.fromDate(body.paidDate) 
+        : now;
+      updateData.accountId = accountId;
+
+      // Guardar notas si se proporcionaron
+      if (body.notes) {
+        updateData.notes = body.notes;
+      }
+
+      // Actualizar balance de la cuenta (restar porque es gasto)
+      const accountData = accountDoc.data()!;
+      const balanceChange = -existingData.amount; // Siempre negativo para domiciliaciones (son gastos)
+      
+      await db.collection('accounts').doc(accountId).update({
+        currentBalance: (accountData.currentBalance || 0) + balanceChange,
+        lastUpdateAmount: balanceChange,
+        lastUpdateDate: now,
+        lastUpdatedBy: userId,
+        updatedAt: now,
+      });
+
+      // Registrar acción en auditoría
+      await logTransactionAction(userId, 'CONFIRM_DIRECT_DEBIT', id, {
+        action: 'confirmDirectDebit',
+        amount: existingData.amount,
+        accountId: accountId,
+        accountName: accountData.alias || accountData.bankName,
+        paidDate: updateData.paidDate,
+        notes: body.notes || null,
+      }, { entityName: existingData.description || `Domiciliación - ${existingData.amount}` });
     } else {
       return errorResponse('Acción no válida', 400, 'INVALID_ACTION');
     }
