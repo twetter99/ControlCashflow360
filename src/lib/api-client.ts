@@ -1073,6 +1073,21 @@ export const paymentOrdersApi = {
 };
 
 // ============================================
+// MIGRATIONS API
+// ============================================
+
+export const migrationsApi = {
+  /**
+   * Migrar órdenes de pago para añadir companyId y companyName
+   */
+  async migratePaymentOrdersCompany(): Promise<{ message: string; updated: number; total?: number }> {
+    return apiRequest('/api/migrations/payment-orders-company', {
+      method: 'POST',
+    });
+  },
+};
+
+// ============================================
 // ALERTS API
 // ============================================
 

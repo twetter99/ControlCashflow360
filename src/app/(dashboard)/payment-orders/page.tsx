@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Card } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
-import { paymentOrdersApi, accountsApi, companiesApi } from '@/lib/api-client';
+import { paymentOrdersApi, accountsApi, companiesApi, migrationsApi } from '@/lib/api-client';
 import { PaymentOrder, PaymentOrderStatus, PaymentOrderItem, Account, Company } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { PaymentOrderEditModal } from '@/components/PaymentOrderEditModal';
@@ -482,10 +482,28 @@ export default function PaymentOrdersPage() {
           <h1 className="text-2xl font-bold text-gray-900">Órdenes de Pago</h1>
           <p className="text-gray-500 mt-1">Historial y gestión de órdenes emitidas para Financiero</p>
         </div>
-        <Button variant="outline" onClick={loadOrders}>
-          <RefreshCw size={16} className="mr-2" />
-          Actualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={async () => {
+              try {
+                const result = await migrationsApi.migratePaymentOrdersCompany();
+                toast.success(result.message);
+                loadOrders();
+              } catch (error) {
+                console.error('Error migración:', error);
+                toast.error('Error al migrar órdenes');
+              }
+            }}
+          >
+            <Building2 size={16} className="mr-2" />
+            Migrar Empresas
+          </Button>
+          <Button variant="outline" onClick={loadOrders}>
+            <RefreshCw size={16} className="mr-2" />
+            Actualizar
+          </Button>
+        </div>
       </div>
 
       {/* Resumen */}
