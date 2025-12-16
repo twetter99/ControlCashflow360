@@ -4,7 +4,9 @@ import { authenticateRequest, withErrorHandling } from '@/lib/api-utils';
 
 /**
  * POST: Migrar órdenes de pago existentes para añadir companyId y companyName
- * Obtiene el companyId de la primera transacción de cada orden
+ * Obtiene el companyId de:
+ * 1. La primera transacción de cada orden (para órdenes normales)
+ * 2. El lote de nóminas asociado (para órdenes de nóminas)
  */
 export async function POST(request: NextRequest) {
   return withErrorHandling(async () => {
@@ -50,6 +52,21 @@ export async function POST(request: NextRequest) {
       transactionsMap.set(doc.id, { companyId: doc.data().companyId });
     });
 
+    // Obtener todos los lotes de nóminas del usuario (para órdenes de payroll)
+    const payrollBatchesSnapshot = await db
+      .collection('payroll_batches')
+      .where('userId', '==', userId)
+      .get();
+    
+    // Mapear paymentOrderId -> companyId desde los lotes
+    const payrollOrdersMap = new Map<string, string>();
+    payrollBatchesSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      if (data.paymentOrderId && data.companyId) {
+        payrollOrdersMap.set(data.paymentOrderId, data.companyId);
+      }
+    });
+
     let updated = 0;
     const batch = db.batch();
 
@@ -57,10 +74,10 @@ export async function POST(request: NextRequest) {
       const orderData = orderDoc.data();
       const items = orderData.items || [];
       
-      // Buscar companyId de la primera transacción
       let companyId: string | null = null;
       let companyName: string | null = null;
       
+      // 1. Primero intentar obtener de transacciones
       for (const item of items) {
         if (item.transactionId) {
           const tx = transactionsMap.get(item.transactionId);
@@ -69,6 +86,15 @@ export async function POST(request: NextRequest) {
             companyName = companiesMap.get(companyId) || null;
             break;
           }
+        }
+      }
+
+      // 2. Si no encontró, intentar desde lotes de nóminas
+      if (!companyId) {
+        const payrollCompanyId = payrollOrdersMap.get(orderDoc.id);
+        if (payrollCompanyId) {
+          companyId = payrollCompanyId;
+          companyName = companiesMap.get(companyId) || null;
         }
       }
 

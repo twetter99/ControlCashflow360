@@ -547,11 +547,22 @@ export async function POST(request: NextRequest, context: RouteParams) {
         const userData = userDoc.data();
         const authorizedByName = userData?.displayName || userData?.email || 'Usuario';
 
+        // Obtener nombre de la empresa
+        let companyName: string | undefined;
+        if (batchData.companyId) {
+          const companyDoc = await db.collection('companies').doc(batchData.companyId).get();
+          if (companyDoc.exists) {
+            companyName = companyDoc.data()?.name;
+          }
+        }
+
         const orderData = {
           userId,
           orderNumber,
           title: `Nóminas - ${batchData.title}`,
           description: `Orden de pago generada desde ${batchData.title}`,
+          companyId: batchData.companyId || null,
+          companyName: companyName || null,
           items,
           totalAmount,
           itemCount: items.length,
