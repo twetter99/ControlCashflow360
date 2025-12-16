@@ -183,6 +183,14 @@ export async function PUT(
       );
     }
 
+    // Solo permitir edición si la orden no está ejecutada
+    if (data?.status === 'EXECUTED') {
+      return NextResponse.json(
+        { success: false, error: 'No se pueden modificar órdenes ya ejecutadas' },
+        { status: 400 }
+      );
+    }
+
     // Construir objeto de actualización solo con campos permitidos
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -202,6 +210,31 @@ export async function PUT(
     }
     if (body.notesForFinance !== undefined) updateData.notesForFinance = body.notesForFinance;
     if (body.defaultChargeAccountId !== undefined) updateData.defaultChargeAccountId = body.defaultChargeAccountId;
+
+    // Actualizar items si se proporcionan
+    if (body.items !== undefined && Array.isArray(body.items)) {
+      const updatedItems = body.items;
+      updateData.items = updatedItems;
+      
+      // Recalcular totales
+      const totalAmount = updatedItems.reduce((sum: number, item: { amount: number }) => sum + (item.amount || 0), 0);
+      updateData.totalAmount = totalAmount;
+      updateData.itemCount = updatedItems.length;
+
+      // Actualizar también las transacciones correspondientes
+      const batch = db.batch();
+      for (const item of updatedItems) {
+        if (item.transactionId) {
+          const txRef = db.collection('transactions').doc(item.transactionId);
+          batch.update(txRef, {
+            supplierBankAccount: item.supplierBankAccount,
+            amount: item.amount,
+            updatedAt: new Date(),
+          });
+        }
+      }
+      await batch.commit();
+    }
 
     await db.collection('payment_orders').doc(id).update(updateData);
 

@@ -4,8 +4,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button, Card } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { paymentOrdersApi, accountsApi, companiesApi } from '@/lib/api-client';
-import { PaymentOrder, PaymentOrderStatus, Account, Company } from '@/types';
+import { PaymentOrder, PaymentOrderStatus, PaymentOrderItem, Account, Company } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
+import { PaymentOrderEditModal } from '@/components/PaymentOrderEditModal';
 import { 
   FileText, 
   Printer, 
@@ -44,6 +45,7 @@ export default function PaymentOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<PaymentOrderStatus | 'ALL'>('ALL');
   const [viewingOrder, setViewingOrder] = useState<PaymentOrder | null>(null);
+  const [editingOrder, setEditingOrder] = useState<PaymentOrder | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -115,8 +117,19 @@ export default function PaymentOrdersPage() {
   };
 
   const handleEdit = (order: PaymentOrder) => {
-    // Por ahora, abrir el modal de visualización donde se podrá editar
-    setViewingOrder(order);
+    // Abrir el modal de edición
+    setEditingOrder(order);
+  };
+
+  const handleSaveEdit = async (orderId: string, updates: { items: PaymentOrderItem[]; notesForFinance?: string }) => {
+    try {
+      const updated = await paymentOrdersApi.update(orderId, updates);
+      setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
+      toast.success('Orden actualizada correctamente');
+    } catch (error) {
+      console.error('Error:', error);
+      throw error; // Re-throw para que el modal maneje el error
+    }
   };
 
   const handlePrint = () => {
@@ -807,6 +820,14 @@ export default function PaymentOrdersPage() {
           }
         }
       `}</style>
+
+      {/* Modal de edición de orden */}
+      <PaymentOrderEditModal
+        isOpen={!!editingOrder}
+        order={editingOrder}
+        onClose={() => setEditingOrder(null)}
+        onSave={handleSaveEdit}
+      />
 
       <Toaster position="top-right" />
     </div>
