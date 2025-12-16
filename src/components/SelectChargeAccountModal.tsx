@@ -124,7 +124,7 @@ export function SelectChargeAccountModal({
                           )}
                         </div>
                         <p className="text-sm text-gray-500 font-mono">
-                          {formatIBAN(account.iban)}
+                          {formatIBAN(account.accountNumber)}
                         </p>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-sm text-gray-600">Saldo:</span>
