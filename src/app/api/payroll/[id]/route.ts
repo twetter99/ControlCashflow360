@@ -500,6 +500,22 @@ export async function POST(request: NextRequest, context: RouteParams) {
           );
         }
 
+        // Obtener cuenta de cargo si se especifica
+        const chargeAccountId = searchParams.get('chargeAccountId');
+        let chargeAccountData: { name?: string; bankName?: string; iban?: string } | null = null;
+        
+        if (chargeAccountId) {
+          const accountDoc = await db.collection('accounts').doc(chargeAccountId).get();
+          if (accountDoc.exists) {
+            const accData = accountDoc.data();
+            chargeAccountData = {
+              name: accData?.alias || accData?.name,
+              bankName: accData?.bankName,
+              iban: accData?.iban,
+            };
+          }
+        }
+
         const linesSnapshot = await db.collection('payroll_lines')
           .where('payrollBatchId', '==', id)
           .where('status', '==', 'PENDING')
@@ -563,6 +579,11 @@ export async function POST(request: NextRequest, context: RouteParams) {
           description: `Orden de pago generada desde ${batchData.title}`,
           companyId: batchData.companyId || null,
           companyName: companyName || null,
+          // Cuenta de cargo seleccionada
+          chargeAccountId: chargeAccountId || null,
+          chargeAccountName: chargeAccountData?.name || null,
+          chargeAccountBank: chargeAccountData?.bankName || null,
+          chargeAccountIban: chargeAccountData?.iban || null,
           items,
           totalAmount,
           itemCount: items.length,

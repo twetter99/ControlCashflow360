@@ -1344,8 +1344,12 @@ export const payrollApi = {
   /**
    * Generar orden de pago desde el lote
    */
-  async generatePaymentOrder(batchId: string): Promise<GeneratePaymentOrderResult> {
-    return apiRequest<GeneratePaymentOrderResult>(`/api/payroll/${batchId}?action=generate-payment-order`, {
+  async generatePaymentOrder(batchId: string, chargeAccountId?: string): Promise<GeneratePaymentOrderResult> {
+    const params = new URLSearchParams({ action: 'generate-payment-order' });
+    if (chargeAccountId) {
+      params.append('chargeAccountId', chargeAccountId);
+    }
+    return apiRequest<GeneratePaymentOrderResult>(`/api/payroll/${batchId}?${params.toString()}`, {
       method: 'POST',
     });
   },
