@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Pin,
+  UserCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -39,6 +40,7 @@ const navItems: NavItem[] = [
   { href: '/accounts', label: 'Cuentas', icon: <Wallet size={20} /> },
   { href: '/transactions', label: 'Movimientos', icon: <ArrowUpDown size={20} /> },
   { href: '/third-parties', label: 'Terceros', icon: <Users size={20} /> },
+  { href: '/workers', label: 'Trabajadores', icon: <UserCheck size={20} /> },
   { href: '/payment-orders', label: 'Órdenes de Pago', icon: <ClipboardList size={20} /> },
   { href: '/credit-lines', label: 'Pólizas', icon: <Receipt size={20} /> },
   { href: '/credit-cards', label: 'Tarjetas', icon: <CreditCard size={20} /> },

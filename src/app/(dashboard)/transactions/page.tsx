@@ -5,7 +5,7 @@ import { Button, Card, Input, ThirdPartyAutocomplete, CurrencyInput, IBANInput }
 import { useCompanyFilter } from '@/contexts/CompanyFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { transactionsApi, companiesApi, accountsApi, recurrenceVersionsApi, accountHoldsApi } from '@/lib/api-client';
-import { Transaction, Company, Account, AccountHold, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer, RecurrenceUpdateScope, PaymentOrder } from '@/types';
+import { Transaction, Company, Account, AccountHold, TransactionStatus, TransactionType, RecurrenceFrequency, CertaintyLevel, PaymentMethod, getIncomeLayer, RecurrenceUpdateScope, PaymentOrder, PayrollBatch } from '@/types';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
   Plus, 
@@ -27,10 +27,12 @@ import {
   Copy,
   Eye,
   RefreshCw,
-  ClipboardList
+  ClipboardList,
+  Users,
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
 import { PaymentOrderModal } from '@/components/PaymentOrderModal';
+import { PayrollWizardModal } from '@/components/PayrollWizardModal';
 
 interface CompanyOption {
   id: string;
@@ -104,6 +106,10 @@ export default function TransactionsPage() {
   
   // Estado para modal de orden de pago
   const [showPaymentOrderModal, setShowPaymentOrderModal] = useState(false);
+  
+  // Estado para modal de nóminas
+  const [showPayrollWizard, setShowPayrollWizard] = useState(false);
+  const [lastPayrollBatch, setLastPayrollBatch] = useState<PayrollBatch | null>(null);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -1260,14 +1266,64 @@ export default function TransactionsPage() {
                   <option value="Otros">Otros</option>
                 </select>
               </div>
+              
+              {/* Sección especial para Nóminas */}
+              {formData.category === 'Nóminas' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Users className="text-blue-600 mt-1 flex-shrink-0" size={20} />
+                    <div className="flex-1">
+                      <h4 className="text-sm font-medium text-blue-800 mb-1">
+                        Gestión de Nóminas
+                      </h4>
+                      <p className="text-sm text-blue-600 mb-3">
+                        Las nóminas se gestionan como un lote con líneas individuales por trabajador.
+                        Usa el asistente para seleccionar trabajadores, importes y generar el movimiento.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!formData.companyId) {
+                            toast.error('Selecciona primero una empresa');
+                            return;
+                          }
+                          setShowPayrollWizard(true);
+                        }}
+                        className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Users size={16} />
+                        Abrir Asistente de Nóminas
+                      </button>
+                      {lastPayrollBatch && (
+                        <div className="mt-3 p-3 bg-green-100 border border-green-200 rounded-lg">
+                          <p className="text-sm text-green-800">
+                            ✓ Lote creado: {lastPayrollBatch.title} - {lastPayrollBatch.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} ({lastPayrollBatch.workerCount} trabajadores)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Campos de Importe y Fecha - ocultar importe si es nómina con lote */}
               <div className="grid grid-cols-2 gap-4">
-                <CurrencyInput
-                  label="Importe"
-                  value={formData.amount}
-                  onChange={(value) => setFormData({ ...formData, amount: value })}
-                  placeholder="0,00"
-                  required
-                />
+                {formData.category === 'Nóminas' && lastPayrollBatch ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <label className="block text-sm font-medium text-green-700 mb-1">Importe (desde lote)</label>
+                    <p className="text-lg font-semibold text-green-800">
+                      {lastPayrollBatch.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                    </p>
+                  </div>
+                ) : (
+                  <CurrencyInput
+                    label="Importe"
+                    value={formData.amount}
+                    onChange={(value) => setFormData({ ...formData, amount: value })}
+                    placeholder="0,00"
+                    required
+                  />
+                )}
                 <Input
                   label="Fecha Vencimiento"
                   type="date"
@@ -2015,6 +2071,24 @@ export default function TransactionsPage() {
         onOrderCreated={(order) => {
           toast.success(`Orden ${order.orderNumber} generada correctamente`);
           setSelectedIds(new Set());
+        }}
+      />
+
+      {/* Modal de Asistente de Nóminas */}
+      <PayrollWizardModal
+        isOpen={showPayrollWizard}
+        onClose={() => setShowPayrollWizard(false)}
+        companyId={formData.companyId}
+        onComplete={(batch) => {
+          setLastPayrollBatch(batch);
+          setFormData(prev => ({
+            ...prev,
+            amount: batch.totalAmount,
+            thirdPartyName: `Nóminas ${batch.title}`,
+            description: `Lote de nóminas ${batch.title} - ${batch.workerCount} trabajadores`
+          }));
+          setShowPayrollWizard(false);
+          toast.success(`Lote de nóminas creado: ${batch.workerCount} trabajadores, ${batch.totalAmount.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}`);
         }}
       />
 

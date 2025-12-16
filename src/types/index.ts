@@ -35,6 +35,214 @@ export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 // Método de pago para gastos
 export type PaymentMethod = 'TRANSFER' | 'DIRECT_DEBIT';
 
+// Estado de lote de nóminas
+export type PayrollBatchStatus = 'DRAFT' | 'CONFIRMED' | 'PARTIALLY_PAID' | 'COMPLETED' | 'CANCELLED';
+
+// Estado de línea de nómina individual
+export type PayrollLineStatus = 'PENDING' | 'PAID' | 'CANCELLED';
+
+// ============================================
+// Colección: workers (Trabajadores para Pagos)
+// Maestro simple para beneficiarios de nóminas
+// ============================================
+
+export interface Worker {
+  id: string;
+  userId: string;
+  companyId: string;                // Empresa a la que pertenece
+  
+  // Datos básicos
+  displayName: string;              // Nombre completo
+  identifier?: string;              // DNI/NIE opcional
+  alias?: string;                   // Alias corto (opcional)
+  
+  // Datos bancarios (se guardan una vez, se reutilizan cada mes)
+  iban: string;                     // IBAN para recibir nómina
+  bankAlias?: string;               // Ej: "Santander nómina"
+  
+  // Estado
+  status: EntityStatus;             // ACTIVE / INACTIVE
+  
+  // Importes por defecto (opcional, para precargar)
+  defaultAmount?: number;           // Importe habitual de nómina
+  
+  // Auditoría
+  notes?: string;
+  createdBy?: string;
+  lastUpdatedBy?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Input para crear trabajador
+export interface CreateWorkerInput {
+  companyId: string;
+  displayName: string;
+  identifier?: string;
+  alias?: string;
+  iban: string;
+  bankAlias?: string;
+  defaultAmount?: number;
+  notes?: string;
+}
+
+// Input para actualizar trabajador
+export interface UpdateWorkerInput {
+  displayName?: string;
+  identifier?: string;
+  alias?: string;
+  iban?: string;
+  bankAlias?: string;
+  defaultAmount?: number;
+  status?: EntityStatus;
+  notes?: string;
+}
+
+// ============================================
+// Colección: payroll_batches (Lotes de Nóminas Mensuales)
+// Un lote = nóminas de un mes para una empresa
+// ============================================
+
+export interface PayrollBatch {
+  id: string;
+  userId: string;
+  companyId: string;
+  
+  // Identificación del lote
+  year: number;                     // 2025
+  month: number;                    // 1-12
+  title: string;                    // "Nóminas Diciembre 2025"
+  
+  // Totales (calculados desde líneas)
+  totalAmount: number;              // Suma de todas las líneas
+  workerCount: number;              // Número de trabajadores
+  
+  // Estado del lote
+  status: PayrollBatchStatus;
+  
+  // Fechas
+  dueDate?: Date;                   // Fecha de vencimiento general (opcional)
+  confirmedAt?: Date;               // Cuando se confirmó el lote
+  
+  // Referencia a transacción padre (movimiento resumen)
+  parentTransactionId?: string;     // ID de la transacción tipo "Nóminas Mes"
+  
+  // Integración con órdenes de pago
+  paymentOrderId?: string;          // ID de la orden de pago generada (si aplica)
+  paymentOrderNumber?: string;      // "OP-2025-0005"
+  
+  // Auditoría
+  notes?: string;
+  createdBy?: string;
+  confirmedBy?: string;
+  lastUpdatedBy?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Input para crear lote de nóminas
+export interface CreatePayrollBatchInput {
+  companyId: string;
+  year: number;
+  month: number;
+  title?: string;
+  dueDate?: Date;
+  notes?: string;
+}
+
+// ============================================
+// Colección: payroll_lines (Líneas de Nómina)
+// Una línea por trabajador dentro de un lote
+// ============================================
+
+export interface PayrollLine {
+  id: string;
+  userId: string;
+  payrollBatchId: string;           // Lote al que pertenece
+  companyId: string;                // Para filtros rápidos
+  
+  // Trabajador
+  workerId: string;                 // ID del trabajador
+  workerName: string;               // Snapshot del nombre (por si cambia)
+  
+  // Datos bancarios (snapshot para trazabilidad)
+  ibanSnapshot: string;             // IBAN usado en este pago (puede diferir del actual)
+  bankAliasSnapshot?: string;       // Alias del banco en el momento
+  
+  // Importe
+  amount: number;
+  
+  // Estado individual
+  status: PayrollLineStatus;
+  
+  // Fechas
+  dueDate?: Date;                   // Fecha prevista de pago
+  paidDate?: Date;                  // Fecha real de pago
+  
+  // Referencia a orden de pago (si se generó)
+  paymentOrderId?: string;
+  paymentOrderItemIndex?: number;   // Índice dentro del array de items
+  
+  // Auditoría
+  notes?: string;
+  createdBy?: string;
+  lastUpdatedBy?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Input para crear línea de nómina
+export interface CreatePayrollLineInput {
+  payrollBatchId: string;
+  workerId: string;
+  amount: number;
+  dueDate?: Date;
+  notes?: string;
+}
+
+// Input para actualizar línea de nómina
+export interface UpdatePayrollLineInput {
+  amount?: number;
+  status?: PayrollLineStatus;
+  dueDate?: Date;
+  paidDate?: Date;
+  notes?: string;
+}
+
+// ============================================
+// Tipos auxiliares para el wizard de nóminas
+// ============================================
+
+// Resumen para mostrar en UI
+export interface PayrollBatchSummary {
+  batch: PayrollBatch;
+  lines: PayrollLine[];
+  pendingCount: number;
+  paidCount: number;
+  pendingAmount: number;
+  paidAmount: number;
+}
+
+// Datos para copiar del mes anterior
+export interface PayrollCopyResult {
+  copiedWorkers: number;
+  skippedWorkers: number;           // Ej: trabajadores ahora inactivos
+  totalAmount: number;
+}
+
+// Validación del lote antes de confirmar
+export interface PayrollValidationResult {
+  isValid: boolean;
+  errors: PayrollValidationError[];
+}
+
+export interface PayrollValidationError {
+  workerId: string;
+  workerName: string;
+  errorType: 'MISSING_IBAN' | 'INVALID_AMOUNT' | 'DUPLICATE_WORKER' | 'INACTIVE_WORKER';
+  message: string;
+}
+
 // ============================================
 // Colección: companies
 // ============================================

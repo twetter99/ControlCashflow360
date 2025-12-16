@@ -1130,3 +1130,253 @@ export const alertsApi = {
     });
   },
 };
+
+// ============================================
+// WORKERS API (Trabajadores para Pagos)
+// ============================================
+
+import { Worker, CreateWorkerInput, UpdateWorkerInput, EntityStatus } from '@/types';
+
+export const workersApi = {
+  /**
+   * Obtener todos los trabajadores del usuario
+   */
+  async getAll(companyId?: string, status?: EntityStatus): Promise<Worker[]> {
+    let url = '/api/workers';
+    const params = new URLSearchParams();
+    if (companyId) params.append('companyId', companyId);
+    if (status) params.append('status', status);
+    if (params.toString()) url += `?${params.toString()}`;
+    return apiRequest<Worker[]>(url);
+  },
+
+  /**
+   * Obtener trabajadores activos de una empresa
+   */
+  async getActiveByCompany(companyId: string): Promise<Worker[]> {
+    return this.getAll(companyId, 'ACTIVE');
+  },
+
+  /**
+   * Obtener un trabajador por ID
+   */
+  async getById(id: string): Promise<Worker> {
+    return apiRequest<Worker>(`/api/workers/${id}`);
+  },
+
+  /**
+   * Crear nuevo trabajador
+   */
+  async create(data: CreateWorkerInput): Promise<Worker> {
+    return apiRequest<Worker>('/api/workers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar trabajador
+   */
+  async update(id: string, data: UpdateWorkerInput): Promise<Worker> {
+    return apiRequest<Worker>(`/api/workers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Desactivar trabajador
+   */
+  async deactivate(id: string): Promise<Worker> {
+    return this.update(id, { status: 'INACTIVE' });
+  },
+
+  /**
+   * Reactivar trabajador
+   */
+  async reactivate(id: string): Promise<Worker> {
+    return this.update(id, { status: 'ACTIVE' });
+  },
+
+  /**
+   * Eliminar trabajador
+   */
+  async delete(id: string): Promise<{ message: string }> {
+    return apiRequest<{ message: string }>(`/api/workers/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ============================================
+// PAYROLL API (Lotes de Nóminas)
+// ============================================
+
+import { PayrollBatch, PayrollLine, PayrollBatchStatus, CreatePayrollBatchInput } from '@/types';
+
+interface PayrollBatchWithLines {
+  batch: PayrollBatch;
+  lines: PayrollLine[];
+  summary: {
+    pendingCount: number;
+    paidCount: number;
+    pendingAmount: number;
+    paidAmount: number;
+  };
+}
+
+interface CopyPreviousResult {
+  copiedWorkers: number;
+  skippedWorkers: number;
+  totalAmount: number;
+  lines: PayrollLine[];
+}
+
+interface GeneratePaymentOrderResult {
+  paymentOrderId: string;
+  paymentOrderNumber: string;
+  itemCount: number;
+  totalAmount: number;
+}
+
+export const payrollApi = {
+  /**
+   * Obtener todos los lotes del usuario
+   */
+  async getAll(options?: {
+    companyId?: string;
+    year?: number;
+    month?: number;
+    status?: PayrollBatchStatus;
+  }): Promise<PayrollBatch[]> {
+    let url = '/api/payroll';
+    if (options) {
+      const params = new URLSearchParams();
+      if (options.companyId) params.append('companyId', options.companyId);
+      if (options.year) params.append('year', options.year.toString());
+      if (options.month) params.append('month', options.month.toString());
+      if (options.status) params.append('status', options.status);
+      if (params.toString()) url += `?${params.toString()}`;
+    }
+    return apiRequest<PayrollBatch[]>(url);
+  },
+
+  /**
+   * Obtener un lote con todas sus líneas
+   */
+  async getById(id: string): Promise<PayrollBatchWithLines> {
+    return apiRequest<PayrollBatchWithLines>(`/api/payroll/${id}`);
+  },
+
+  /**
+   * Crear nuevo lote (o obtener existente si ya existe para ese mes)
+   */
+  async create(data: CreatePayrollBatchInput): Promise<PayrollBatch & { isExisting?: boolean }> {
+    return apiRequest<PayrollBatch & { isExisting?: boolean }>('/api/payroll', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Actualizar lote
+   */
+  async update(id: string, data: Partial<PayrollBatch>): Promise<PayrollBatch> {
+    return apiRequest<PayrollBatch>(`/api/payroll/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Eliminar lote (solo borradores)
+   */
+  async delete(id: string): Promise<{ message: string; linesDeleted: number }> {
+    return apiRequest<{ message: string; linesDeleted: number }>(`/api/payroll/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Confirmar lote
+   */
+  async confirm(id: string): Promise<{ message: string; workerCount: number }> {
+    return apiRequest<{ message: string; workerCount: number }>(`/api/payroll/${id}?action=confirm`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Añadir líneas al lote
+   */
+  async addLines(batchId: string, lines: Array<{ workerId: string; amount?: number; dueDate?: Date; notes?: string }>): Promise<{ linesCreated: number; lines: PayrollLine[] }> {
+    return apiRequest<{ linesCreated: number; lines: PayrollLine[] }>(`/api/payroll/${batchId}?action=add-lines`, {
+      method: 'POST',
+      body: JSON.stringify({ lines }),
+    });
+  },
+
+  /**
+   * Copiar del mes anterior
+   */
+  async copyFromPrevious(batchId: string): Promise<CopyPreviousResult> {
+    return apiRequest<CopyPreviousResult>(`/api/payroll/${batchId}?action=copy-previous`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Generar orden de pago desde el lote
+   */
+  async generatePaymentOrder(batchId: string): Promise<GeneratePaymentOrderResult> {
+    return apiRequest<GeneratePaymentOrderResult>(`/api/payroll/${batchId}?action=generate-payment-order`, {
+      method: 'POST',
+    });
+  },
+};
+
+// ============================================
+// PAYROLL LINES API
+// ============================================
+
+export const payrollLinesApi = {
+  /**
+   * Obtener líneas con filtros
+   */
+  async getByBatch(payrollBatchId: string): Promise<PayrollLine[]> {
+    return apiRequest<PayrollLine[]>(`/api/payroll-lines?payrollBatchId=${payrollBatchId}`);
+  },
+
+  /**
+   * Obtener historial de un trabajador
+   */
+  async getByWorker(workerId: string): Promise<PayrollLine[]> {
+    return apiRequest<PayrollLine[]>(`/api/payroll-lines?workerId=${workerId}`);
+  },
+
+  /**
+   * Actualizar línea
+   */
+  async update(lineId: string, data: { amount?: number; status?: string; dueDate?: Date; paidDate?: Date; notes?: string }): Promise<PayrollLine> {
+    return apiRequest<PayrollLine>('/api/payroll-lines', {
+      method: 'PUT',
+      body: JSON.stringify({ lineId, ...data }),
+    });
+  },
+
+  /**
+   * Marcar línea como pagada
+   */
+  async markAsPaid(lineId: string, paidDate: Date = new Date()): Promise<PayrollLine> {
+    return this.update(lineId, { status: 'PAID', paidDate });
+  },
+
+  /**
+   * Eliminar línea
+   */
+  async delete(lineId: string): Promise<{ message: string }> {
+    return apiRequest<{ message: string }>(`/api/payroll-lines?lineId=${lineId}`, {
+      method: 'DELETE',
+    });
+  },
+};

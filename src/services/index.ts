@@ -5,3 +5,5 @@ export * from './creditLines';
 export * from './transactions';
 export * from './snapshots';
 export * from './alerts';
+export * from './workers';
+export * from './payroll';
