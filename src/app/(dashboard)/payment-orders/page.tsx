@@ -124,7 +124,12 @@ export default function PaymentOrdersPage() {
   const handleSaveEdit = async (orderId: string, updates: { items: PaymentOrderItem[]; notesForFinance?: string }) => {
     try {
       const updated = await paymentOrdersApi.update(orderId, updates);
-      setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
+      // Fusionar datos actualizados con los existentes para no perder campos
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updated } : o));
+      // También actualizar editingOrder si está abierto
+      if (editingOrder?.id === orderId) {
+        setEditingOrder(prev => prev ? { ...prev, ...updated } : null);
+      }
       toast.success('Orden actualizada correctamente');
     } catch (error) {
       console.error('Error:', error);
