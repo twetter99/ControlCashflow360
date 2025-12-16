@@ -9,6 +9,7 @@ import { Account, CreditLine, Transaction, IncomeLayer, AccountHold, CreditCard,
 import { PaymentOrderModal } from '@/components/PaymentOrderModal';
 import ConfirmDirectDebitModal from '@/components/ConfirmDirectDebitModal';
 import TransactionDetailModal from '@/components/TransactionDetailModal';
+import ExpectedIncomeAdjustmentModal from '@/components/ExpectedIncomeAdjustmentModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { CreditCard as CreditCardIcon } from 'lucide-react';
 import { 
@@ -31,7 +32,8 @@ import {
   ClipboardList,
   Send,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Pencil
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Link from 'next/link';
@@ -58,6 +60,12 @@ interface ForecastBucket {
   cumulativeBalance: number; // Saldo acumulado (saldo inicial + todos los flujos hasta este bucket)
   incomeTransactions: Transaction[];  // Transacciones de cobros del período
   expenseTransactions: Transaction[]; // Transacciones de pagos del período
+  // Datos para el modal de ajuste
+  year: number;
+  month: number;
+  monthlyBudget: number;   // Presupuesto original del mes
+  adjustment: number;      // Ajuste actual de cobros esperados
+  adjustmentReason: string; // Motivo del ajuste
 }
 
 // Tipo para el modal de detalle
@@ -107,8 +115,26 @@ export default function DashboardPage() {
   // Objetivo mensual de ingresos (Sistema 3 Capas)
   const [monthlyIncomeGoal, setMonthlyIncomeGoal] = useState<number>(0);
   
-  // Todos los presupuestos mensuales (para previsiones)
-  const [allBudgets, setAllBudgets] = useState<{ year: number; month: number; incomeGoal: number }[]>([]);
+  // Todos los presupuestos mensuales (para previsiones) - incluyendo ajustes
+  const [allBudgets, setAllBudgets] = useState<{ 
+    year: number; 
+    month: number; 
+    incomeGoal: number;
+    expectedIncomeAdjustment?: number;
+    adjustmentReason?: string;
+  }[]>([]);
+  
+  // Modal de ajuste de cobros esperados
+  const [adjustmentModal, setAdjustmentModal] = useState<{
+    isOpen: boolean;
+    year: number;
+    month: number;
+    monthLabel: string;
+    incomeGoal: number;
+    realIncomes: number;
+    currentAdjustment: number;
+    currentReason: string;
+  } | null>(null);
   
   // Período seleccionado para próximos vencimientos
   const [upcomingDaysFilter, setUpcomingDaysFilter] = useState<7 | 15 | 21 | 30>(7);
@@ -270,15 +296,17 @@ export default function DashboardPage() {
           })
         ]);
         
-        const budgets: { year: number; month: number; incomeGoal: number }[] = [];
+        const budgets: { year: number; month: number; incomeGoal: number; expectedIncomeAdjustment?: number; adjustmentReason?: string }[] = [];
         
         if (responseCurrentYear.ok) {
           const result = await responseCurrentYear.json();
           if (result.success && result.data) {
-            budgets.push(...result.data.map((b: { year: number; month: number; incomeGoal: number }) => ({
+            budgets.push(...result.data.map((b: { year: number; month: number; incomeGoal: number; expectedIncomeAdjustment?: number; adjustmentReason?: string }) => ({
               year: b.year,
               month: b.month,
-              incomeGoal: b.incomeGoal || 0
+              incomeGoal: b.incomeGoal || 0,
+              expectedIncomeAdjustment: b.expectedIncomeAdjustment || 0,
+              adjustmentReason: b.adjustmentReason || ''
             })));
           }
         }
@@ -286,10 +314,12 @@ export default function DashboardPage() {
         if (responseNextYear.ok) {
           const result = await responseNextYear.json();
           if (result.success && result.data) {
-            budgets.push(...result.data.map((b: { year: number; month: number; incomeGoal: number }) => ({
+            budgets.push(...result.data.map((b: { year: number; month: number; incomeGoal: number; expectedIncomeAdjustment?: number; adjustmentReason?: string }) => ({
               year: b.year,
               month: b.month,
-              incomeGoal: b.incomeGoal || 0
+              incomeGoal: b.incomeGoal || 0,
+              expectedIncomeAdjustment: b.expectedIncomeAdjustment || 0,
+              adjustmentReason: b.adjustmentReason || ''
             })));
           }
         }
@@ -451,10 +481,19 @@ export default function DashboardPage() {
     /**
      * Obtiene el presupuesto mensual completo para un mes específico
      * NO prorratea - siempre devuelve el objetivo mensual íntegro
+     * Ahora también devuelve el ajuste de cobros esperados
      */
-    const getMonthlyBudget = (year: number, month: number): number => {
+    const getMonthlyBudget = (year: number, month: number): { 
+      incomeGoal: number; 
+      adjustment: number; 
+      adjustmentReason: string;
+    } => {
       const budget = allBudgets.find(b => b.year === year && b.month === month);
-      return budget?.incomeGoal || 0;
+      return {
+        incomeGoal: budget?.incomeGoal || 0,
+        adjustment: budget?.expectedIncomeAdjustment || 0,
+        adjustmentReason: budget?.adjustmentReason || ''
+      };
     };
     
     // Empezamos con el saldo disponible (descontando retenciones) para previsiones más realistas
@@ -474,12 +513,15 @@ export default function DashboardPage() {
       // Calcular cobros REALES (transacciones INCOME del período)
       const incomes = incomeTransactions.reduce((sum, tx) => sum + tx.amount, 0);
       
-      // Obtener el presupuesto mensual COMPLETO (objetivo del mes)
-      const monthlyBudget = getMonthlyBudget(period.year, period.month);
+      // Obtener el presupuesto mensual COMPLETO (objetivo del mes) y su ajuste
+      const budgetData = getMonthlyBudget(period.year, period.month);
+      const monthlyBudget = budgetData.incomeGoal;
+      const adjustment = budgetData.adjustment; // Valor negativo si se reduce
       
-      // Cobros ESPERADOS = Presupuesto - Reales (mínimo 0, nunca negativo)
-      // A medida que se añaden transacciones reales, el estimado va bajando
-      const estimatedIncomes = Math.max(0, monthlyBudget - incomes);
+      // Cobros ESPERADOS = Presupuesto - Reales + Ajuste (mínimo 0, nunca negativo)
+      // El ajuste es negativo cuando se quiere reducir los cobros esperados
+      // (ej: cuando se cobra una factura de un mes anterior)
+      const estimatedIncomes = Math.max(0, monthlyBudget - incomes + adjustment);
       
       // Cobros efectivos para el cálculo del flujo = Reales + Estimados pendientes
       // Esto equivale al presupuesto si no hay reales, o a los reales si superan el presupuesto
@@ -508,6 +550,12 @@ export default function DashboardPage() {
         cumulativeBalance: runningBalance,
         incomeTransactions,
         expenseTransactions,
+        // Datos para el modal de ajuste
+        year: period.year,
+        month: period.month,
+        monthlyBudget,
+        adjustment,
+        adjustmentReason: budgetData.adjustmentReason,
       };
     });
   };
@@ -967,12 +1015,37 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {/* Cobros Esperados (pendientes de cobrar) */}
+                  {/* Cobros Esperados (pendientes de cobrar) - Con botón de editar */}
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500 text-sm">Cobros esperados</span>
-                    <span className={`font-medium ${bucket.estimatedIncomes > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                      +{formatCurrency(bucket.estimatedIncomes)}
+                    <span className="text-gray-500 text-sm flex items-center gap-1">
+                      Cobros esperados
+                      {bucket.adjustment !== 0 && (
+                        <span className="text-xs text-amber-600" title={bucket.adjustmentReason || 'Ajuste aplicado'}>
+                          (ajustado)
+                        </span>
+                      )}
                     </span>
+                    <div className="flex items-center gap-1">
+                      <span className={`font-medium ${bucket.estimatedIncomes > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                        +{formatCurrency(bucket.estimatedIncomes)}
+                      </span>
+                      <button
+                        onClick={() => setAdjustmentModal({
+                          isOpen: true,
+                          year: bucket.year,
+                          month: bucket.month,
+                          monthLabel: bucket.monthNames,
+                          incomeGoal: bucket.monthlyBudget,
+                          realIncomes: bucket.incomes,
+                          currentAdjustment: bucket.adjustment,
+                          currentReason: bucket.adjustmentReason
+                        })}
+                        className="p-1 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                        title="Ajustar cobros esperados"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    </div>
                   </div>
                   {/* Cobros Reales (transacciones) - Clicable */}
                   <div className="flex justify-between items-center">
@@ -2003,6 +2076,58 @@ export default function DashboardPage() {
         accounts={accounts}
         onConfirm={handleConfirmDirectDebit}
       />
+
+      {/* Modal de Ajuste de Cobros Esperados */}
+      {adjustmentModal && (
+        <ExpectedIncomeAdjustmentModal
+          isOpen={adjustmentModal.isOpen}
+          onClose={() => setAdjustmentModal(null)}
+          onSave={async (adjustment, reason) => {
+            try {
+              const token = await auth?.currentUser?.getIdToken();
+              if (!token) throw new Error('No autenticado');
+              
+              const response = await fetch('/api/budgets', {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  year: adjustmentModal.year,
+                  month: adjustmentModal.month,
+                  expectedIncomeAdjustment: adjustment,
+                  adjustmentReason: reason
+                })
+              });
+              
+              if (!response.ok) {
+                throw new Error('Error al guardar');
+              }
+              
+              // Actualizar el estado local de budgets
+              setAllBudgets(prev => prev.map(b => 
+                b.year === adjustmentModal.year && b.month === adjustmentModal.month
+                  ? { ...b, expectedIncomeAdjustment: adjustment, adjustmentReason: reason }
+                  : b
+              ));
+              
+              toast.success('Ajuste guardado correctamente');
+            } catch (error) {
+              console.error('Error guardando ajuste:', error);
+              toast.error('Error al guardar el ajuste');
+              throw error;
+            }
+          }}
+          monthLabel={adjustmentModal.monthLabel}
+          year={adjustmentModal.year}
+          month={adjustmentModal.month}
+          incomeGoal={adjustmentModal.incomeGoal}
+          realIncomes={adjustmentModal.realIncomes}
+          currentAdjustment={adjustmentModal.currentAdjustment}
+          currentReason={adjustmentModal.currentReason}
+        />
+      )}
 
       <Toaster position="top-right" />
     </div>

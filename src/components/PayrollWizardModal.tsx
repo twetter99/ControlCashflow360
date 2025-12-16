@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button, Input, CurrencyInput, IBANInput } from '@/components/ui';
-import { workersApi, payrollApi, companiesApi } from '@/lib/api-client';
+import { workersApi, payrollApi, companiesApi, accountsApi } from '@/lib/api-client';
 import { 
   Worker, 
   Company, 
+  Account,
   PayrollBatch, 
   PayrollLine,
   PayrollValidationError,
@@ -33,6 +34,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { formatCurrency, formatIBAN } from '@/lib/utils';
+import { SelectChargeAccountModal } from './SelectChargeAccountModal';
 
 interface PayrollWizardModalProps {
   isOpen: boolean;
@@ -76,6 +78,11 @@ export function PayrollWizardModal({
   const [workerSelections, setWorkerSelections] = useState<WorkerSelection[]>([]);
   const [batch, setBatch] = useState<PayrollBatch | null>(null);
   const [existingLines, setExistingLines] = useState<PayrollLine[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  
+  // Modal selección de cuenta de cargo
+  const [showChargeAccountModal, setShowChargeAccountModal] = useState(false);
+  const [generatingOrder, setGeneratingOrder] = useState(false);
   
   // Formulario paso 1
   const [selectedCompanyId, setSelectedCompanyId] = useState(initialCompanyId || '');
@@ -141,13 +148,20 @@ export function PayrollWizardModal({
   useEffect(() => {
     if (!selectedCompanyId) {
       setWorkers([]);
+      setAccounts([]);
       return;
     }
     
     const loadWorkers = async () => {
       try {
-        const workersData = await workersApi.getActiveByCompany(selectedCompanyId);
+        const [workersData, accountsData] = await Promise.all([
+          workersApi.getActiveByCompany(selectedCompanyId),
+          accountsApi.getAll()
+        ]);
+        
         setWorkers(workersData);
+        // Filtrar cuentas de la empresa seleccionada
+        setAccounts(accountsData.filter(a => a.companyId === selectedCompanyId));
         
         // Inicializar selecciones
         const selections: WorkerSelection[] = workersData.map(worker => {
@@ -352,6 +366,12 @@ export function PayrollWizardModal({
   const handleSave = async (confirm: boolean, generatePaymentOrder: boolean = false) => {
     if (!batch) return;
     
+    // Si se quiere generar orden de pago, mostrar modal de selección de cuenta
+    if (generatePaymentOrder) {
+      setShowChargeAccountModal(true);
+      return;
+    }
+    
     setSaving(true);
     try {
       // Primero, añadir las líneas al lote
@@ -370,12 +390,6 @@ export function PayrollWizardModal({
         // Validar y confirmar
         const confirmResult = await payrollApi.confirm(batch.id);
         toast.success(`Lote confirmado con ${confirmResult.workerCount} trabajadores`);
-        
-        if (generatePaymentOrder) {
-          // Generar orden de pago
-          const orderResult = await payrollApi.generatePaymentOrder(batch.id);
-          toast.success(`Orden de pago ${orderResult.paymentOrderNumber} generada`);
-        }
       } else {
         toast.success('Lote guardado como borrador');
       }
@@ -388,6 +402,41 @@ export function PayrollWizardModal({
       toast.error(message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Confirmar y generar orden de pago con cuenta seleccionada
+  const handleConfirmWithPaymentOrder = async (chargeAccountId: string) => {
+    if (!batch) return;
+    
+    setGeneratingOrder(true);
+    try {
+      // Primero, añadir las líneas al lote
+      const linesToAdd = selectedWorkers.map(sel => ({
+        workerId: sel.workerId,
+        amount: sel.amount,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+      }));
+      
+      await payrollApi.addLines(batch.id, linesToAdd);
+      
+      // Validar y confirmar
+      const confirmResult = await payrollApi.confirm(batch.id);
+      toast.success(`Lote confirmado con ${confirmResult.workerCount} trabajadores`);
+      
+      // Generar orden de pago con la cuenta seleccionada
+      const orderResult = await payrollApi.generatePaymentOrder(batch.id, chargeAccountId);
+      toast.success(`Orden de pago ${orderResult.paymentOrderNumber} generada`);
+      
+      setShowChargeAccountModal(false);
+      onComplete(batch, totalAmount);
+      onClose();
+    } catch (error: unknown) {
+      console.error('Error generando orden:', error);
+      const message = error instanceof Error ? error.message : 'Error al generar orden';
+      toast.error(message);
+    } finally {
+      setGeneratingOrder(false);
     }
   };
 
@@ -1018,6 +1067,17 @@ export function PayrollWizardModal({
           )}
         </div>
       </div>
+
+      {/* Modal de selección de cuenta de cargo */}
+      <SelectChargeAccountModal
+        isOpen={showChargeAccountModal}
+        onClose={() => setShowChargeAccountModal(false)}
+        onConfirm={handleConfirmWithPaymentOrder}
+        accounts={accounts}
+        totalAmount={totalAmount}
+        title="Seleccionar cuenta de cargo para nóminas"
+        isLoading={generatingOrder}
+      />
     </div>
   );
 }

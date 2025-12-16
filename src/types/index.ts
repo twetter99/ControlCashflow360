@@ -452,6 +452,9 @@ export interface MonthlyBudget {
   month: number;       // 1-12 (Enero=1, Diciembre=12)
   incomeGoal: number;  // Objetivo de ingresos para ese mes
   notes?: string;      // Notas opcionales
+  // Ajuste de cobros esperados (para cuando se cobra una factura de mes anterior)
+  expectedIncomeAdjustment?: number;  // Valor negativo para reducir cobros esperados
+  adjustmentReason?: string;          // Motivo del ajuste (ej: "Factura X cobrada en Enero")
   createdAt?: Date;
   updatedAt?: Date;
 }

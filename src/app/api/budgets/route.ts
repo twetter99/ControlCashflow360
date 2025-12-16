@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     const { userId } = authResult;
     
     const body = await request.json();
-    const { year, month, incomeGoal, notes } = body;
+    const { year, month, incomeGoal, notes, expectedIncomeAdjustment, adjustmentReason } = body;
     
     const db = getAdminDb();
 
@@ -105,11 +105,19 @@ export async function POST(request: NextRequest) {
     if (!existing.empty) {
       // Actualizar existente
       const docRef = existing.docs[0].ref;
-      await docRef.update({
+      const updateData: Record<string, unknown> = {
         incomeGoal,
         notes: notes || '',
         updatedAt: now,
-      });
+      };
+      
+      // Solo incluir campos de ajuste si se proporcionan
+      if (expectedIncomeAdjustment !== undefined) {
+        updateData.expectedIncomeAdjustment = expectedIncomeAdjustment;
+        updateData.adjustmentReason = adjustmentReason || '';
+      }
+      
+      await docRef.update(updateData);
       
       return successResponse({
         id: docRef.id,
@@ -118,6 +126,8 @@ export async function POST(request: NextRequest) {
         month,
         incomeGoal,
         notes: notes || '',
+        expectedIncomeAdjustment: expectedIncomeAdjustment ?? existing.docs[0].data().expectedIncomeAdjustment ?? 0,
+        adjustmentReason: adjustmentReason ?? existing.docs[0].data().adjustmentReason ?? '',
         updatedAt: now,
       });
     } else {
@@ -128,6 +138,8 @@ export async function POST(request: NextRequest) {
         month,
         incomeGoal,
         notes: notes || '',
+        expectedIncomeAdjustment: expectedIncomeAdjustment || 0,
+        adjustmentReason: adjustmentReason || '',
         createdAt: now,
         updatedAt: now,
       };
@@ -222,5 +234,96 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('Error bulk updating budgets:', error);
     return errorResponse('Error al actualizar presupuestos', 500);
+  }
+}
+
+/**
+ * PATCH /api/budgets
+ * Actualiza solo el ajuste de cobros esperados de un mes específico
+ * Body: { year, month, expectedIncomeAdjustment, adjustmentReason }
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const authResult = await authenticateRequest(request);
+    if ('error' in authResult) return authResult.error;
+    const { userId } = authResult;
+    
+    const body = await request.json();
+    const { year, month, expectedIncomeAdjustment, adjustmentReason } = body;
+    
+    const db = getAdminDb();
+
+    // Validaciones
+    if (!year || !month) {
+      return NextResponse.json(
+        { success: false, error: 'year y month son requeridos' },
+        { status: 400 }
+      );
+    }
+
+    if (expectedIncomeAdjustment === undefined) {
+      return NextResponse.json(
+        { success: false, error: 'expectedIncomeAdjustment es requerido' },
+        { status: 400 }
+      );
+    }
+
+    // Buscar el presupuesto existente
+    const existing = await db
+      .collection(COLLECTION)
+      .where('userId', '==', userId)
+      .where('year', '==', year)
+      .where('month', '==', month)
+      .limit(1)
+      .get();
+
+    const now = new Date();
+
+    if (!existing.empty) {
+      // Actualizar solo el ajuste
+      const docRef = existing.docs[0].ref;
+      const currentData = existing.docs[0].data();
+      
+      await docRef.update({
+        expectedIncomeAdjustment,
+        adjustmentReason: adjustmentReason || '',
+        updatedAt: now,
+      });
+      
+      return successResponse({
+        id: docRef.id,
+        userId,
+        year,
+        month,
+        incomeGoal: currentData.incomeGoal || 0,
+        notes: currentData.notes || '',
+        expectedIncomeAdjustment,
+        adjustmentReason: adjustmentReason || '',
+        updatedAt: now,
+      });
+    } else {
+      // Crear nuevo registro con ajuste (incomeGoal = 0 por defecto)
+      const budgetData = {
+        userId,
+        year,
+        month,
+        incomeGoal: 0,
+        notes: '',
+        expectedIncomeAdjustment,
+        adjustmentReason: adjustmentReason || '',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const docRef = await db.collection(COLLECTION).add(budgetData);
+      
+      return successResponse({
+        id: docRef.id,
+        ...budgetData,
+      });
+    }
+  } catch (error) {
+    console.error('Error updating budget adjustment:', error);
+    return errorResponse('Error al actualizar ajuste de presupuesto', 500);
   }
 }
