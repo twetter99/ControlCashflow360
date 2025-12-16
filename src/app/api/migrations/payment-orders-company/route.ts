@@ -25,8 +25,10 @@ export async function POST(request: NextRequest) {
     if (ordersToUpdate.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'No hay órdenes para migrar',
-        updated: 0,
+        data: {
+          message: 'No hay órdenes para migrar',
+          updated: 0,
+        },
       });
     }
 
@@ -86,9 +88,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Migración completada: ${updated} órdenes actualizadas`,
-      updated,
-      total: ordersToUpdate.length,
+      data: {
+        message: `Migración completada: ${updated} órdenes actualizadas`,
+        updated,
+        total: ordersToUpdate.length,
+      },
     });
   });
 }
