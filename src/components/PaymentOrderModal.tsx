@@ -257,6 +257,9 @@ export function PaymentOrderModal({
         notes: '',
       }));
 
+      // Obtener companyId de la primera transacción
+      const companyId = selectedTransactions[0]?.companyId;
+
       const order = await paymentOrdersApi.create({
         title: `Orden de Pago - ${monthNames[now.getMonth()]} ${now.getFullYear()}`,
         description: `${selectedTransactions.length} pagos por transferencia`,
@@ -264,6 +267,7 @@ export function PaymentOrderModal({
         items,
         transactionIds: selectedTransactions.map(tx => tx.id),
         notesForFinance,
+        companyId,
       });
 
       setCreatedOrder(order);

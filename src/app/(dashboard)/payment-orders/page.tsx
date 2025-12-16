@@ -23,7 +23,8 @@ import {
   Trash2,
   Edit2,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Building2
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
 import jsPDF from 'jspdf';
@@ -572,6 +573,12 @@ export default function PaymentOrdersPage() {
                         <p className="text-xs text-gray-500 mt-1">{order.description}</p>
                       )}
                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
+                        {order.companyName && (
+                          <span className="flex items-center gap-1 text-blue-600 font-medium">
+                            <Building2 size={12} />
+                            {order.companyName}
+                          </span>
+                        )}
                         <span className="flex items-center gap-1">
                           <Calendar size={12} />
                           {formatDate(order.createdAt)}

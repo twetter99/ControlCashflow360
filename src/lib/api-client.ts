@@ -1003,6 +1003,7 @@ export interface CreatePaymentOrderInput {
   items: Omit<PaymentOrderItem, 'transactionId'>[];
   transactionIds: string[];
   notesForFinance?: string;
+  companyId?: string;
 }
 
 export const paymentOrdersApi = {

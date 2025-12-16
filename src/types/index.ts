@@ -928,6 +928,10 @@ export interface PaymentOrder {
   userId: string;
   orderNumber: string;          // Número secuencial: OP-2025-0001
   
+  // Empresa (puede ser una o varias si agrupa de distintas empresas)
+  companyId?: string;           // ID de la empresa principal
+  companyName?: string;         // Nombre de la empresa para mostrar
+  
   // Datos de la orden
   title: string;                // "Orden de Pago - Diciembre 2025"
   description?: string;

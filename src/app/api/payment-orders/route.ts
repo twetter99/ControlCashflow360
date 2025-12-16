@@ -67,7 +67,8 @@ export async function POST(request: NextRequest) {
       defaultChargeAccountId, 
       items, 
       transactionIds,
-      notesForFinance 
+      notesForFinance,
+      companyId,
     } = body;
 
     if (!title || !items || items.length === 0) {
@@ -101,6 +102,15 @@ export async function POST(request: NextRequest) {
     const userData = userDoc.data();
     const authorizedByName = userData?.displayName || userData?.email || 'Usuario';
 
+    // Obtener nombre de la empresa si se proporciona companyId
+    let companyName: string | undefined;
+    if (companyId) {
+      const companyDoc = await db.collection('companies').doc(companyId).get();
+      if (companyDoc.exists) {
+        companyName = companyDoc.data()?.name;
+      }
+    }
+
     const now = new Date();
     const orderData = {
       userId,
@@ -108,6 +118,8 @@ export async function POST(request: NextRequest) {
       title,
       description: description || '',
       defaultChargeAccountId: defaultChargeAccountId || null,
+      companyId: companyId || null,
+      companyName: companyName || null,
       items: items.map((item: PaymentOrderItem, index: number) => ({
         transactionId: transactionIds?.[index] || '',
         description: item.description,
