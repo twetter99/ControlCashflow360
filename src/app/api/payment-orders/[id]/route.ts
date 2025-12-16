@@ -36,11 +36,20 @@ export async function GET(
       );
     }
 
+    // Procesar items para convertir fechas
+    const processedItems = (data?.items || []).map((item: Record<string, unknown>) => ({
+      ...item,
+      dueDate: item.dueDate && typeof item.dueDate === 'object' && 'toDate' in item.dueDate 
+        ? (item.dueDate as { toDate: () => Date }).toDate() 
+        : item.dueDate,
+    }));
+
     return NextResponse.json({
       success: true,
       data: {
         id: doc.id,
         ...data,
+        items: processedItems,
         createdAt: data?.createdAt?.toDate(),
         updatedAt: data?.updatedAt?.toDate(),
         authorizedAt: data?.authorizedAt?.toDate(),
@@ -138,11 +147,20 @@ export async function PATCH(
     const updatedDoc = await db.collection('payment_orders').doc(id).get();
     const updatedData = updatedDoc.data();
 
+    // Procesar items para convertir fechas
+    const processedItems = (updatedData?.items || []).map((item: Record<string, unknown>) => ({
+      ...item,
+      dueDate: item.dueDate && typeof item.dueDate === 'object' && 'toDate' in item.dueDate 
+        ? (item.dueDate as { toDate: () => Date }).toDate() 
+        : item.dueDate,
+    }));
+
     return NextResponse.json({
       success: true,
       data: {
         id,
         ...updatedData,
+        items: processedItems,
         createdAt: updatedData?.createdAt?.toDate(),
         updatedAt: updatedData?.updatedAt?.toDate(),
         authorizedAt: updatedData?.authorizedAt?.toDate(),
@@ -242,11 +260,20 @@ export async function PUT(
     const updatedDoc = await db.collection('payment_orders').doc(id).get();
     const updatedData = updatedDoc.data();
 
+    // Procesar items para convertir fechas
+    const processedItems = (updatedData?.items || []).map((item: Record<string, unknown>) => ({
+      ...item,
+      dueDate: item.dueDate && typeof item.dueDate === 'object' && 'toDate' in item.dueDate 
+        ? (item.dueDate as { toDate: () => Date }).toDate() 
+        : item.dueDate,
+    }));
+
     return NextResponse.json({
       success: true,
       data: {
         id,
         ...updatedData,
+        items: processedItems,
         createdAt: updatedData?.createdAt?.toDate(),
         updatedAt: updatedData?.updatedAt?.toDate(),
         authorizedAt: updatedData?.authorizedAt?.toDate(),
