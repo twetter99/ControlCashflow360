@@ -87,6 +87,9 @@ export async function PUT(request: NextRequest, context: RouteParams) {
       iban, 
       bankAlias, 
       defaultAmount,
+      defaultExtraAmount,
+      numberOfPayments,
+      extrasProrated,
       status,
       notes 
     } = body;
@@ -102,6 +105,9 @@ export async function PUT(request: NextRequest, context: RouteParams) {
     if (iban !== undefined) updateData.iban = iban.toUpperCase().replace(/\s/g, '');
     if (bankAlias !== undefined) updateData.bankAlias = bankAlias?.trim() || null;
     if (defaultAmount !== undefined) updateData.defaultAmount = defaultAmount;
+    if (defaultExtraAmount !== undefined) updateData.defaultExtraAmount = defaultExtraAmount;
+    if (numberOfPayments !== undefined) updateData.numberOfPayments = numberOfPayments;
+    if (extrasProrated !== undefined) updateData.extrasProrated = extrasProrated;
     if (status !== undefined) updateData.status = status;
     if (notes !== undefined) updateData.notes = notes;
 

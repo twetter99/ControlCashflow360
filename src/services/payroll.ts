@@ -44,6 +44,7 @@ function documentToBatch(id: string, data: DocumentData): PayrollBatch {
     year: data.year,
     month: data.month,
     title: data.title,
+    payrollType: data.payrollType || 'MONTHLY',
     totalAmount: data.totalAmount || 0,
     workerCount: data.workerCount || 0,
     status: data.status || 'DRAFT',
@@ -168,13 +169,35 @@ export async function createPayrollBatch(userId: string, data: CreatePayrollBatc
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
   ];
   
-  const title = data.title || `Nóminas ${monthNames[data.month - 1]} ${data.year}`;
+  const payrollType = data.payrollType || 'MONTHLY';
+  
+  // Generar título según el tipo
+  let title = data.title;
+  if (!title) {
+    switch (payrollType) {
+      case 'MONTHLY':
+        title = `Nóminas ${monthNames[data.month - 1]} ${data.year}`;
+        break;
+      case 'EXTRA_SUMMER':
+        title = `Paga Extra Verano ${data.year}`;
+        break;
+      case 'EXTRA_CHRISTMAS':
+        title = `Paga Extra Navidad ${data.year}`;
+        break;
+      case 'BONUS':
+        title = `Bonus ${monthNames[data.month - 1]} ${data.year}`;
+        break;
+      default:
+        title = `Pago Extraordinario ${monthNames[data.month - 1]} ${data.year}`;
+    }
+  }
   
   const docData = {
     userId,
     companyId: data.companyId,
     year: data.year,
     month: data.month,
+    payrollType,
     title,
     totalAmount: 0,
     workerCount: 0,
@@ -194,6 +217,7 @@ export async function createPayrollBatch(userId: string, data: CreatePayrollBatc
     companyId: data.companyId,
     year: data.year,
     month: data.month,
+    payrollType,
     title,
     totalAmount: 0,
     workerCount: 0,

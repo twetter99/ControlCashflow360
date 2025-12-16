@@ -4,7 +4,7 @@ import {
   authenticateRequest,
   withErrorHandling,
 } from '@/lib/api-utils';
-import { PayrollBatch, PayrollBatchStatus } from '@/types';
+import { PayrollBatch, PayrollBatchStatus, PayrollType } from '@/types';
 
 // GET: Obtener todos los lotes de nóminas del usuario
 export async function GET(request: NextRequest) {
@@ -72,10 +72,13 @@ export async function POST(request: NextRequest) {
       companyId, 
       year, 
       month, 
+      payrollType,
       title,
       dueDate,
       notes 
     } = body;
+
+    const batchType: PayrollType = payrollType || 'MONTHLY';
 
     if (!companyId || !year || !month) {
       return NextResponse.json(
@@ -84,12 +87,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verificar si ya existe un lote para ese mes/año/empresa
+    // Verificar si ya existe un lote para ese mes/año/empresa/tipo
     const existingBatch = await db.collection('payroll_batches')
       .where('userId', '==', userId)
       .where('companyId', '==', companyId)
       .where('year', '==', year)
       .where('month', '==', month)
+      .where('payrollType', '==', batchType)
       .get();
 
     if (!existingBatch.empty) {
@@ -115,7 +119,26 @@ export async function POST(request: NextRequest) {
       'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
     ];
     
-    const batchTitle = title || `Nóminas ${monthNames[month - 1]} ${year}`;
+    // Generar título según el tipo
+    let batchTitle = title;
+    if (!batchTitle) {
+      switch (batchType) {
+        case 'MONTHLY':
+          batchTitle = `Nóminas ${monthNames[month - 1]} ${year}`;
+          break;
+        case 'EXTRA_SUMMER':
+          batchTitle = `Paga Extra Verano ${year}`;
+          break;
+        case 'EXTRA_CHRISTMAS':
+          batchTitle = `Paga Extra Navidad ${year}`;
+          break;
+        case 'BONUS':
+          batchTitle = `Bonus ${monthNames[month - 1]} ${year}`;
+          break;
+        default:
+          batchTitle = `Pago Extraordinario ${monthNames[month - 1]} ${year}`;
+      }
+    }
 
     const now = new Date();
     const batchData = {
@@ -123,6 +146,7 @@ export async function POST(request: NextRequest) {
       companyId,
       year,
       month,
+      payrollType: batchType,
       title: batchTitle,
       totalAmount: 0,
       workerCount: 0,

@@ -63,6 +63,9 @@ export async function POST(request: NextRequest) {
       iban, 
       bankAlias, 
       defaultAmount,
+      defaultExtraAmount,
+      numberOfPayments,
+      extrasProrated,
       notes 
     } = body;
 
@@ -90,6 +93,9 @@ export async function POST(request: NextRequest) {
       iban: iban.toUpperCase().replace(/\s/g, ''), // Normalizar IBAN
       bankAlias: bankAlias?.trim() || null,
       defaultAmount: defaultAmount || null,
+      defaultExtraAmount: defaultExtraAmount || null,
+      numberOfPayments: numberOfPayments || 14,
+      extrasProrated: extrasProrated || false,
       status: 'ACTIVE' as EntityStatus,
       notes: notes || '',
       createdBy: userId,

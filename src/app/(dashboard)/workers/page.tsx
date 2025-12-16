@@ -31,6 +31,9 @@ interface WorkerFormData {
   iban: string;
   bankAlias: string;
   defaultAmount: number;
+  defaultExtraAmount: number;
+  numberOfPayments: number;
+  extrasProrated: boolean;
   notes: string;
 }
 
@@ -56,6 +59,9 @@ export default function WorkersPage() {
     iban: '',
     bankAlias: '',
     defaultAmount: 0,
+    defaultExtraAmount: 0,
+    numberOfPayments: 14,
+    extrasProrated: false,
     notes: '',
   });
 
@@ -124,6 +130,9 @@ export default function WorkersPage() {
       iban: worker.iban || '',
       bankAlias: worker.bankAlias || '',
       defaultAmount: worker.defaultAmount || 0,
+      defaultExtraAmount: worker.defaultExtraAmount || 0,
+      numberOfPayments: worker.numberOfPayments || 14,
+      extrasProrated: worker.extrasProrated || false,
       notes: worker.notes || '',
     });
     setEditingWorker(worker.id);
@@ -209,6 +218,9 @@ export default function WorkersPage() {
           iban: formData.iban,
           bankAlias: formData.bankAlias.trim() || undefined,
           defaultAmount: formData.defaultAmount || undefined,
+          defaultExtraAmount: formData.defaultExtraAmount || undefined,
+          numberOfPayments: formData.numberOfPayments || 14,
+          extrasProrated: formData.extrasProrated,
           notes: formData.notes.trim() || undefined,
         });
         setWorkers(prev => prev.map(w => w.id === editingWorker ? updated : w));
@@ -222,6 +234,9 @@ export default function WorkersPage() {
           iban: formData.iban,
           bankAlias: formData.bankAlias.trim() || undefined,
           defaultAmount: formData.defaultAmount || undefined,
+          defaultExtraAmount: formData.defaultExtraAmount || undefined,
+          numberOfPayments: formData.numberOfPayments || 14,
+          extrasProrated: formData.extrasProrated,
           notes: formData.notes.trim() || undefined,
         });
         setWorkers(prev => [...prev, created]);
@@ -238,6 +253,9 @@ export default function WorkersPage() {
         iban: '',
         bankAlias: '',
         defaultAmount: 0,
+        defaultExtraAmount: 0,
+        numberOfPayments: 14,
+        extrasProrated: false,
         notes: '',
       });
     } catch (error) {
@@ -259,6 +277,9 @@ export default function WorkersPage() {
       iban: '',
       bankAlias: '',
       defaultAmount: 0,
+      defaultExtraAmount: 0,
+      numberOfPayments: 14,
+      extrasProrated: false,
       notes: '',
     });
   };
@@ -593,7 +614,59 @@ export default function WorkersPage() {
                     onChange={(value) => setFormData({ ...formData, defaultAmount: value })}
                     placeholder="0,00"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Se usará como valor por defecto al crear nuevos lotes</p>
+                  <p className="text-xs text-gray-500 mt-1">Se usará como valor por defecto al crear nuevos lotes mensuales</p>
+                </div>
+
+                {/* Configuración de pagas extras */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
+                  <p className="text-sm font-medium text-amber-800 flex items-center gap-2">
+                    🎁 Configuración de Pagas Extras
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nº de pagas anuales
+                      </label>
+                      <select
+                        value={formData.numberOfPayments}
+                        onChange={(e) => setFormData({ ...formData, numberOfPayments: parseInt(e.target.value) })}
+                        className="w-full border rounded-lg px-4 py-2 text-sm"
+                      >
+                        <option value={12}>12 pagas</option>
+                        <option value={14}>14 pagas (2 extras)</option>
+                        <option value={15}>15 pagas (3 extras)</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <CurrencyInput
+                        label="Importe paga extra"
+                        value={formData.defaultExtraAmount}
+                        onChange={(value) => setFormData({ ...formData, defaultExtraAmount: value })}
+                        placeholder="0,00"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="extrasProrated"
+                      checked={formData.extrasProrated}
+                      onChange={(e) => setFormData({ ...formData, extrasProrated: e.target.checked })}
+                      className="rounded border-gray-300"
+                    />
+                    <label htmlFor="extrasProrated" className="text-sm text-gray-700">
+                      Extras prorrateadas (incluidas en la mensual)
+                    </label>
+                  </div>
+                  
+                  {formData.extrasProrated && (
+                    <p className="text-xs text-amber-600">
+                      💡 Si las extras están prorrateadas, no se generarán lotes de paga extra separados.
+                    </p>
+                  )}
                 </div>
 
                 <div>

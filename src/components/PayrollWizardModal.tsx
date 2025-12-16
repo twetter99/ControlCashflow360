@@ -8,7 +8,8 @@ import {
   Company, 
   PayrollBatch, 
   PayrollLine,
-  PayrollValidationError 
+  PayrollValidationError,
+  PayrollType
 } from '@/types';
 import toast from 'react-hot-toast';
 import { 
@@ -80,6 +81,7 @@ export function PayrollWizardModal({
   const [selectedCompanyId, setSelectedCompanyId] = useState(initialCompanyId || '');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [selectedPayrollType, setSelectedPayrollType] = useState<PayrollType>('MONTHLY');
   const [dueDate, setDueDate] = useState('');
   
   // Búsqueda y filtros
@@ -152,11 +154,17 @@ export function PayrollWizardModal({
           // Buscar si hay una línea existente para este trabajador
           const existingLine = existingLines.find(l => l.workerId === worker.id);
           
+          // Para pagas extras, usar defaultExtraAmount si existe, si no defaultAmount
+          const isExtra = selectedPayrollType !== 'MONTHLY';
+          const defaultAmount = isExtra 
+            ? (worker.defaultExtraAmount || worker.defaultAmount || 0)
+            : (worker.defaultAmount || 0);
+          
           return {
             workerId: worker.id,
             worker,
             selected: !!existingLine,
-            amount: existingLine?.amount || worker.defaultAmount || 0,
+            amount: existingLine?.amount || defaultAmount,
             hasError: false,
           };
         });
@@ -169,7 +177,7 @@ export function PayrollWizardModal({
     };
     
     loadWorkers();
-  }, [selectedCompanyId, existingLines]);
+  }, [selectedCompanyId, existingLines, selectedPayrollType]);
 
   // Filtrar trabajadores por búsqueda
   const filteredSelections = workerSelections.filter(sel => {
@@ -230,6 +238,7 @@ export function PayrollWizardModal({
           companyId: selectedCompanyId,
           year: selectedYear,
           month: selectedMonth,
+          payrollType: selectedPayrollType,
           dueDate: dueDate ? new Date(dueDate) : undefined,
         });
         
@@ -584,6 +593,25 @@ export function PayrollWizardModal({
                       </div>
                     </div>
 
+                    {/* Tipo de nómina */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tipo de Pago
+                      </label>
+                      <select
+                        value={selectedPayrollType}
+                        onChange={(e) => setSelectedPayrollType(e.target.value as PayrollType)}
+                        className="w-full border rounded-lg px-4 py-3"
+                        disabled={!!existingBatchId}
+                      >
+                        <option value="MONTHLY">Nómina Mensual</option>
+                        <option value="EXTRA_SUMMER">Paga Extra Verano</option>
+                        <option value="EXTRA_CHRISTMAS">Paga Extra Navidad</option>
+                        <option value="BONUS">Bonus / Incentivo</option>
+                        <option value="OTHER">Otro pago extraordinario</option>
+                      </select>
+                    </div>
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Fecha de pago prevista (opcional)
@@ -598,8 +626,19 @@ export function PayrollWizardModal({
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <p className="text-sm text-blue-800">
                         <FileText size={16} className="inline mr-2" />
-                        Se creará el lote: <strong>Nóminas {MONTH_NAMES[selectedMonth - 1]} {selectedYear}</strong>
+                        Se creará el lote: <strong>
+                          {selectedPayrollType === 'MONTHLY' && `Nóminas ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`}
+                          {selectedPayrollType === 'EXTRA_SUMMER' && `Paga Extra Verano ${selectedYear}`}
+                          {selectedPayrollType === 'EXTRA_CHRISTMAS' && `Paga Extra Navidad ${selectedYear}`}
+                          {selectedPayrollType === 'BONUS' && `Bonus ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`}
+                          {selectedPayrollType === 'OTHER' && `Pago Extraordinario ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`}
+                        </strong>
                       </p>
+                      {selectedPayrollType !== 'MONTHLY' && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          💡 Para pagas extras, se usará el importe de paga extra configurado en cada trabajador (si está disponible).
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

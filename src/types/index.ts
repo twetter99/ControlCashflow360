@@ -41,6 +41,9 @@ export type PayrollBatchStatus = 'DRAFT' | 'CONFIRMED' | 'PARTIALLY_PAID' | 'COM
 // Estado de línea de nómina individual
 export type PayrollLineStatus = 'PENDING' | 'PAID' | 'CANCELLED';
 
+// Tipo de nómina (mensual vs extras)
+export type PayrollType = 'MONTHLY' | 'EXTRA_SUMMER' | 'EXTRA_CHRISTMAS' | 'BONUS' | 'OTHER';
+
 // ============================================
 // Colección: workers (Trabajadores para Pagos)
 // Maestro simple para beneficiarios de nóminas
@@ -64,7 +67,12 @@ export interface Worker {
   status: EntityStatus;             // ACTIVE / INACTIVE
   
   // Importes por defecto (opcional, para precargar)
-  defaultAmount?: number;           // Importe habitual de nómina
+  defaultAmount?: number;           // Importe habitual de nómina mensual
+  defaultExtraAmount?: number;      // Importe habitual de paga extra (si aplica)
+  
+  // Configuración de pagas
+  numberOfPayments?: number;        // 12, 14, 15, etc. (por defecto 12)
+  extrasProrated?: boolean;         // Si las extras están prorrateadas en la mensual
   
   // Auditoría
   notes?: string;
@@ -83,6 +91,9 @@ export interface CreateWorkerInput {
   iban: string;
   bankAlias?: string;
   defaultAmount?: number;
+  defaultExtraAmount?: number;
+  numberOfPayments?: number;        // 12, 14, 15...
+  extrasProrated?: boolean;
   notes?: string;
 }
 
@@ -94,6 +105,9 @@ export interface UpdateWorkerInput {
   iban?: string;
   bankAlias?: string;
   defaultAmount?: number;
+  defaultExtraAmount?: number;
+  numberOfPayments?: number;
+  extrasProrated?: boolean;
   status?: EntityStatus;
   notes?: string;
 }
@@ -110,8 +124,11 @@ export interface PayrollBatch {
   
   // Identificación del lote
   year: number;                     // 2025
-  month: number;                    // 1-12
-  title: string;                    // "Nóminas Diciembre 2025"
+  month: number;                    // 1-12 (para extras puede ser el mes de pago)
+  title: string;                    // "Nóminas Diciembre 2025" o "Paga Extra Navidad 2025"
+  
+  // Tipo de nómina
+  payrollType: PayrollType;         // MONTHLY, EXTRA_SUMMER, EXTRA_CHRISTMAS, BONUS, OTHER
   
   // Totales (calculados desde líneas)
   totalAmount: number;              // Suma de todas las líneas
@@ -145,6 +162,7 @@ export interface CreatePayrollBatchInput {
   companyId: string;
   year: number;
   month: number;
+  payrollType?: PayrollType;        // Por defecto 'MONTHLY'
   title?: string;
   dueDate?: Date;
   notes?: string;
