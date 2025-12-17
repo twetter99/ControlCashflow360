@@ -29,8 +29,11 @@ import {
   RefreshCw,
   ClipboardList,
   Users,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatIBAN } from '@/lib/utils';
+import { exportToExcel, exportToPDF } from '@/lib/utils/export';
 import { PaymentOrderModal } from '@/components/PaymentOrderModal';
 import { PayrollWizardModal } from '@/components/PayrollWizardModal';
 
@@ -110,6 +113,9 @@ export default function TransactionsPage() {
   // Estado para modal de nóminas
   const [showPayrollWizard, setShowPayrollWizard] = useState(false);
   const [lastPayrollBatch, setLastPayrollBatch] = useState<PayrollBatch | null>(null);
+  
+  // Estado para exportación
+  const [isExporting, setIsExporting] = useState(false);
   
   const [formData, setFormData] = useState<TransactionFormData>({
     type: 'EXPENSE',
@@ -769,6 +775,57 @@ export default function TransactionsPage() {
     }
   };
 
+  // Funciones de exportación
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      await exportToExcel({
+        transactions: filteredTransactions,
+        companies,
+        accounts,
+        filters: {
+          horizon: filterHorizon,
+          company: effectiveCompanyFilter ? (companies.find(c => c.id === effectiveCompanyFilter)?.name || '') : 'Todas',
+          account: filterAccountId !== 'ALL' ? (accounts.find(a => a.id === filterAccountId)?.bankName || '') : 'Todos',
+          thirdParty: filterThirdPartyId !== 'ALL' ? (uniqueThirdParties.find(([id]) => id === filterThirdPartyId)?.[1] || '') : 'Todos',
+          status: filterStatus,
+          type: filterType,
+        },
+      });
+      toast.success('Excel descargado correctamente');
+    } catch (error) {
+      console.error('Error exportando a Excel:', error);
+      toast.error('Error al exportar a Excel');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    setIsExporting(true);
+    try {
+      await exportToPDF({
+        transactions: filteredTransactions,
+        companies,
+        accounts,
+        filters: {
+          horizon: filterHorizon,
+          company: effectiveCompanyFilter ? (companies.find(c => c.id === effectiveCompanyFilter)?.name || '') : 'Todas',
+          account: filterAccountId !== 'ALL' ? (accounts.find(a => a.id === filterAccountId)?.bankName || '') : 'Todos',
+          thirdParty: filterThirdPartyId !== 'ALL' ? (uniqueThirdParties.find(([id]) => id === filterThirdPartyId)?.[1] || '') : 'Todos',
+          status: filterStatus,
+          type: filterType,
+        },
+      });
+      toast.success('PDF descargado correctamente');
+    } catch (error) {
+      console.error('Error exportando a PDF:', error);
+      toast.error('Error al exportar a PDF');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -779,10 +836,43 @@ export default function TransactionsPage() {
             Gestiona ingresos y gastos previstos
           </p>
         </div>
-        <Button onClick={() => setShowForm(true)}>
-          <Plus size={18} className="mr-2" />
-          Nuevo Movimiento
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Botones de exportación */}
+          <Button
+            variant="outline"
+            onClick={handleExportExcel}
+            disabled={isExporting || filteredTransactions.length === 0}
+            title="Descargar Excel"
+          >
+            {isExporting ? (
+              <RefreshCw size={18} className="animate-spin" />
+            ) : (
+              <>
+                <FileSpreadsheet size={18} className="mr-2" />
+                Excel
+              </>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportPDF}
+            disabled={isExporting || filteredTransactions.length === 0}
+            title="Descargar PDF"
+          >
+            {isExporting ? (
+              <RefreshCw size={18} className="animate-spin" />
+            ) : (
+              <>
+                <Download size={18} className="mr-2" />
+                PDF
+              </>
+            )}
+          </Button>
+          <Button onClick={() => setShowForm(true)}>
+            <Plus size={18} className="mr-2" />
+            Nuevo Movimiento
+          </Button>
+        </div>
       </div>
 
       {/* Resumen */}
