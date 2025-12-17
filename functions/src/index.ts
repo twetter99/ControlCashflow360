@@ -670,6 +670,23 @@ export const generateRecurrences = functions.pubsub
               const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
               existingDates.add(dateKey);
             });
+          } else {
+            // Si no hay thirdPartyId (ej: nóminas), buscar por descripción + companyId + type + amount
+            // Esto previene duplicados cuando hay múltiples recurrencias con el mismo concepto
+            const existingByDescriptionSnap = await db.collection('transactions')
+              .where('userId', '==', recurrence.userId)
+              .where('companyId', '==', recurrence.companyId)
+              .where('description', '==', recurrence.name)
+              .where('type', '==', recurrence.type)
+              .where('amount', '==', recurrence.baseAmount)
+              .get();
+            
+            existingByDescriptionSnap.docs.forEach(txDoc => {
+              const txData = txDoc.data();
+              const dueDate = txData.dueDate?.toDate?.() || new Date(txData.dueDate);
+              const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+              existingDates.add(dateKey);
+            });
           }
 
           // Crear transacciones que no existan

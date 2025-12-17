@@ -36,8 +36,9 @@ export async function POST(request: NextRequest) {
       .where('userId', '==', userId)
       .get();
 
-    // Agrupar por clave única: companyId + thirdPartyId + type + amount + date
-    // NO incluir description para detectar duplicados con nombres diferentes
+    // Agrupar por clave única para detectar duplicados
+    // Si tiene thirdPartyId: companyId + thirdPartyId + type + amount + date
+    // Si NO tiene thirdPartyId (ej: nóminas): companyId + description + type + amount + date
     const groups: Record<string, DuplicateItem[]> = {};
 
     snapshot.docs.forEach(doc => {
@@ -45,8 +46,14 @@ export async function POST(request: NextRequest) {
       const dueDate = data.dueDate?.toDate?.() || new Date(data.dueDate);
       const dateKey = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
       
-      // Clave única: tercero + tipo + monto + fecha (sin description)
-      const key = `${data.companyId}|${data.thirdPartyId || ''}|${data.type}|${data.amount}|${dateKey}`;
+      // Clave única: usar thirdPartyId si existe, sino usar description
+      // Esto detecta duplicados de nóminas y otros gastos sin tercero asociado
+      let key: string;
+      if (data.thirdPartyId) {
+        key = `${data.companyId}|TP:${data.thirdPartyId}|${data.type}|${data.amount}|${dateKey}`;
+      } else {
+        key = `${data.companyId}|DESC:${data.description || ''}|${data.type}|${data.amount}|${dateKey}`;
+      }
       
       if (!groups[key]) {
         groups[key] = [];
@@ -101,9 +108,15 @@ export async function POST(request: NextRequest) {
 
     recurrencesSnapshot.docs.forEach(doc => {
       const data = doc.data();
-      // Clave única: companyId + thirdPartyId + type + frequency + dayOfMonth + baseAmount
-      // NO incluir name para detectar recurrencias conceptualmente iguales
-      const key = `${data.companyId}|${data.thirdPartyId || ''}|${data.type}|${data.frequency}|${data.dayOfMonth}|${data.baseAmount}`;
+      // Clave única para detectar recurrencias duplicadas
+      // Si tiene thirdPartyId: companyId + thirdPartyId + type + frequency + dayOfMonth + baseAmount
+      // Si NO tiene thirdPartyId: companyId + name + type + frequency + dayOfMonth + baseAmount
+      let key: string;
+      if (data.thirdPartyId) {
+        key = `${data.companyId}|TP:${data.thirdPartyId}|${data.type}|${data.frequency}|${data.dayOfMonth}|${data.baseAmount}`;
+      } else {
+        key = `${data.companyId}|NAME:${data.name || ''}|${data.type}|${data.frequency}|${data.dayOfMonth}|${data.baseAmount}`;
+      }
       
       if (!recurrenceGroups[key]) {
         recurrenceGroups[key] = [];

@@ -19,6 +19,7 @@ import {
   Copy,
   Sparkles,
   CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 import { auth } from '@/lib/firebase/config';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
@@ -128,6 +129,7 @@ export default function SettingsPage() {
   const [migrating, setMigrating] = useState(false);
   const [fixingDates, setFixingDates] = useState(false);
   const [migratingThirdParties, setMigratingThirdParties] = useState(false);
+  const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
   
   // Estados para cambio de contraseña
   const [currentPassword, setCurrentPassword] = useState('');
@@ -177,6 +179,16 @@ export default function SettingsPage() {
       thirdPartiesCreated: number;
       transactionsUpdated: number;
       uniqueNames: number;
+    };
+  } | null>(null);
+  const [cleanupDuplicatesResult, setCleanupDuplicatesResult] = useState<{
+    success: boolean;
+    message: string;
+    details?: {
+      transactionsDeleted: number;
+      recurrencesDeleted: number;
+      totalTransactionsAnalyzed: number;
+      totalRecurrencesAnalyzed: number;
     };
   } | null>(null);
 
@@ -411,6 +423,52 @@ export default function SettingsPage() {
       });
     } finally {
       setMigratingThirdParties(false);
+    }
+  };
+
+  // Función para limpiar transacciones y recurrencias duplicadas
+  const handleCleanupDuplicates = async () => {
+    setCleaningDuplicates(true);
+    setCleanupDuplicatesResult(null);
+    
+    try {
+      if (!auth?.currentUser) {
+        throw new Error('No estás autenticado');
+      }
+      
+      const token = await auth.currentUser.getIdToken();
+      
+      const response = await fetch('/api/transactions/cleanup-duplicates', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setCleanupDuplicatesResult({
+          success: true,
+          message: result.data.message || 'Limpieza completada',
+          details: {
+            transactionsDeleted: result.data.transactionsDeleted || 0,
+            recurrencesDeleted: result.data.recurrencesDeleted || 0,
+            totalTransactionsAnalyzed: result.data.totalTransactionsAnalyzed || 0,
+            totalRecurrencesAnalyzed: result.data.totalRecurrencesAnalyzed || 0,
+          }
+        });
+      } else {
+        throw new Error(result.error || 'Error limpiando duplicados');
+      }
+    } catch (error) {
+      setCleanupDuplicatesResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Error desconocido',
+      });
+    } finally {
+      setCleaningDuplicates(false);
     }
   };
 
@@ -932,6 +990,66 @@ export default function SettingsPage() {
                       <>
                         <RefreshCw size={18} className="mr-2" />
                         Migrar Terceros
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </Card>
+
+              {/* Nueva sección: Limpiar Duplicados */}
+              <Card title="Limpiar Duplicados" subtitle="Elimina transacciones y recurrencias duplicadas">
+                <div className="space-y-4">
+                  <p className="text-gray-600">
+                    Si tienes transacciones duplicadas (como nóminas que aparecen dos veces en el mismo mes), 
+                    esta herramienta las detectará y eliminará, manteniendo solo la más antigua.
+                  </p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <p className="text-sm text-amber-800">
+                      <strong>¿Qué detecta?</strong> Transacciones con la misma empresa, descripción, tipo, monto y fecha.
+                      Por ejemplo: dos &quot;Nominas WS&quot; de -16.500€ el 30/03/2026, o dos &quot;Nominas WI&quot; de -17.000€.
+                    </p>
+                  </div>
+                  
+                  {cleanupDuplicatesResult && (
+                    <div className={`p-4 rounded-lg ${cleanupDuplicatesResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                      <div className="flex items-start space-x-3">
+                        {cleanupDuplicatesResult.success ? (
+                          <Check className="text-green-600 mt-0.5" size={20} />
+                        ) : (
+                          <AlertCircle className="text-red-600 mt-0.5" size={20} />
+                        )}
+                        <div>
+                          <p className={`font-medium ${cleanupDuplicatesResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                            {cleanupDuplicatesResult.message}
+                          </p>
+                          {cleanupDuplicatesResult.details && (
+                            <ul className="mt-2 text-sm text-green-700 space-y-1">
+                              <li>• Transacciones analizadas: {cleanupDuplicatesResult.details.totalTransactionsAnalyzed}</li>
+                              <li>• Transacciones duplicadas eliminadas: {cleanupDuplicatesResult.details.transactionsDeleted}</li>
+                              <li>• Recurrencias analizadas: {cleanupDuplicatesResult.details.totalRecurrencesAnalyzed}</li>
+                              <li>• Recurrencias duplicadas eliminadas: {cleanupDuplicatesResult.details.recurrencesDeleted}</li>
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <Button 
+                    onClick={handleCleanupDuplicates} 
+                    disabled={cleaningDuplicates}
+                    variant="outline"
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                  >
+                    {cleaningDuplicates ? (
+                      <>
+                        <RefreshCw className="animate-spin mr-2" size={18} />
+                        Limpiando...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={18} className="mr-2" />
+                        Limpiar Duplicados
                       </>
                     )}
                   </Button>
