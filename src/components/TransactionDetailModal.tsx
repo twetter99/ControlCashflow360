@@ -18,7 +18,8 @@ import {
   ArrowUpDown,
   Calendar,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 import { Transaction, Account } from '@/types';
@@ -34,6 +35,7 @@ interface TransactionDetailModalProps {
   monthLabel: string;
   accounts?: Account[];
   onConfirmDirectDebit?: (transaction: Transaction) => void;
+  onDeleteTransaction?: (transactionId: string) => Promise<void>;
 }
 
 type SortField = 'date' | 'amount' | 'thirdParty' | 'category';
@@ -57,6 +59,7 @@ export default function TransactionDetailModal({
   monthLabel,
   accounts = [],
   onConfirmDirectDebit,
+  onDeleteTransaction,
 }: TransactionDetailModalProps) {
   // Estados para filtros y ordenación
   const [searchTerm, setSearchTerm] = useState('');
@@ -67,6 +70,22 @@ export default function TransactionDetailModal({
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'table' | 'grouped'>('grouped');
   const [isExporting, setIsExporting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Función para eliminar transacción
+  const handleDelete = async (tx: Transaction) => {
+    if (!onDeleteTransaction) return;
+    
+    const description = tx.description || tx.thirdPartyName || 'este movimiento';
+    if (!confirm(`¿Eliminar "${description}"?\n\nEsta acción no se puede deshacer.`)) return;
+    
+    setDeletingId(tx.id);
+    try {
+      await onDeleteTransaction(tx.id);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   // Obtener categorías y métodos únicos para filtros
   const categories = useMemo(() => {
@@ -515,12 +534,12 @@ export default function TransactionDetailModal({
                               <th className="px-4 py-2 text-left">Categoría</th>
                               {type === 'EXPENSE' && <th className="px-4 py-2 text-left">Método</th>}
                               <th className="px-4 py-2 text-right">Importe</th>
-                              {type === 'EXPENSE' && onConfirmDirectDebit && <th className="px-4 py-2 text-center w-16"></th>}
+                              {(onDeleteTransaction || (type === 'EXPENSE' && onConfirmDirectDebit)) && <th className="px-4 py-2 text-center w-20"></th>}
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
                             {group.transactions.map((tx) => (
-                              <tr key={tx.id} className="hover:bg-gray-50">
+                              <tr key={tx.id} className={`hover:bg-gray-50 ${deletingId === tx.id ? 'opacity-50' : ''}`}>
                                 <td className="px-4 py-3 text-sm text-gray-600">
                                   {formatDate(tx.dueDate)}
                                 </td>
@@ -575,17 +594,29 @@ export default function TransactionDetailModal({
                                 }`}>
                                   {type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
                                 </td>
-                                {type === 'EXPENSE' && onConfirmDirectDebit && (
+                                {(onDeleteTransaction || (type === 'EXPENSE' && onConfirmDirectDebit)) && (
                                   <td className="px-4 py-3 text-center">
-                                    {tx.paymentMethod === 'DIRECT_DEBIT' && tx.status === 'PENDING' && (
-                                      <button
-                                        onClick={() => onConfirmDirectDebit(tx)}
-                                        className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
-                                        title="Confirmar cargo del recibo"
-                                      >
-                                        <CheckCircle size={18} />
-                                      </button>
-                                    )}
+                                    <div className="flex items-center justify-center gap-1">
+                                      {type === 'EXPENSE' && onConfirmDirectDebit && tx.paymentMethod === 'DIRECT_DEBIT' && tx.status === 'PENDING' && (
+                                        <button
+                                          onClick={() => onConfirmDirectDebit(tx)}
+                                          className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
+                                          title="Confirmar cargo del recibo"
+                                        >
+                                          <CheckCircle size={18} />
+                                        </button>
+                                      )}
+                                      {onDeleteTransaction && tx.status === 'PENDING' && (
+                                        <button
+                                          onClick={() => handleDelete(tx)}
+                                          disabled={deletingId === tx.id}
+                                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                          title="Eliminar movimiento"
+                                        >
+                                          <Trash2 size={16} />
+                                        </button>
+                                      )}
+                                    </div>
                                   </td>
                                 )}
                               </tr>
@@ -640,12 +671,12 @@ export default function TransactionDetailModal({
                         <ArrowUpDown size={12} className={sortField === 'amount' ? 'text-primary-600' : ''} />
                       </button>
                     </th>
-                    {type === 'EXPENSE' && onConfirmDirectDebit && <th className="px-4 py-3 text-center w-16"></th>}
+                    {(onDeleteTransaction || (type === 'EXPENSE' && onConfirmDirectDebit)) && <th className="px-4 py-3 text-center w-20"></th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {sortedTransactions.map((tx) => (
-                    <tr key={tx.id} className="hover:bg-gray-50">
+                    <tr key={tx.id} className={`hover:bg-gray-50 ${deletingId === tx.id ? 'opacity-50' : ''}`}>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {formatDate(tx.dueDate)}
                       </td>
@@ -700,17 +731,29 @@ export default function TransactionDetailModal({
                       }`}>
                         {type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
                       </td>
-                      {type === 'EXPENSE' && onConfirmDirectDebit && (
+                      {(onDeleteTransaction || (type === 'EXPENSE' && onConfirmDirectDebit)) && (
                         <td className="px-4 py-3 text-center">
-                          {tx.paymentMethod === 'DIRECT_DEBIT' && tx.status === 'PENDING' && (
-                            <button
-                              onClick={() => onConfirmDirectDebit(tx)}
-                              className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
-                              title="Confirmar cargo del recibo"
-                            >
-                              <CheckCircle size={18} />
-                            </button>
-                          )}
+                          <div className="flex items-center justify-center gap-1">
+                            {type === 'EXPENSE' && onConfirmDirectDebit && tx.paymentMethod === 'DIRECT_DEBIT' && tx.status === 'PENDING' && (
+                              <button
+                                onClick={() => onConfirmDirectDebit(tx)}
+                                className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
+                                title="Confirmar cargo del recibo"
+                              >
+                                <CheckCircle size={18} />
+                              </button>
+                            )}
+                            {onDeleteTransaction && tx.status === 'PENDING' && (
+                              <button
+                                onClick={() => handleDelete(tx)}
+                                disabled={deletingId === tx.id}
+                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                title="Eliminar movimiento"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>

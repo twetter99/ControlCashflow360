@@ -207,6 +207,31 @@ export default function DashboardPage() {
     }
   };
 
+  // Handler para eliminar transacción desde el modal de detalle
+  const handleDeleteTransaction = async (transactionId: string) => {
+    try {
+      await transactionsApi.delete(transactionId);
+      
+      // Actualizar la lista de transacciones
+      setTransactions(prev => prev.filter(tx => tx.id !== transactionId));
+      
+      // También actualizar las transacciones en el modal si está abierto
+      setDetailModal(prev => ({
+        ...prev,
+        transactions: prev.transactions.filter(tx => tx.id !== transactionId),
+        total: prev.transactions
+          .filter(tx => tx.id !== transactionId)
+          .reduce((sum, tx) => sum + tx.amount, 0)
+      }));
+      
+      toast.success('Movimiento eliminado');
+    } catch (error) {
+      console.error('Error al eliminar transacción:', error);
+      toast.error('Error al eliminar el movimiento');
+      throw error;
+    }
+  };
+
   /**
    * Determina la capa del ingreso basada en la lógica del Sistema de 3 Capas:
    * - Capa 1 (Facturado): Tiene número de factura
@@ -2052,6 +2077,7 @@ export default function DashboardPage() {
         monthLabel={detailModal.monthLabel}
         accounts={accounts}
         onConfirmDirectDebit={detailModal.type === 'EXPENSE' ? (tx) => setDirectDebitToConfirm(tx) : undefined}
+        onDeleteTransaction={handleDeleteTransaction}
       />
 
       {/* Modal de Orden de Pago - Solo con las transacciones seleccionadas */}
