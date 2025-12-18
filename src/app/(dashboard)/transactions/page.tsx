@@ -335,35 +335,20 @@ export default function TransactionsPage() {
   const handlePermanentDelete = async (transactionId: string, txDescription: string) => {
     if (!user) return;
     
-    // Buscar la transacción para verificar si es recurrente
+    // Buscar la transacción
     const tx = transactions.find(t => t.id === transactionId);
     if (!tx) return;
     
-    // Determinar si es recurrente de cualquier forma:
-    // 1. Tiene recurrenceId (es parte de una cadena de recurrencia)
-    // 2. Tiene recurrence != 'NONE' (es una transacción recurrente manual)
-    const hasRecurrenceId = !!tx.recurrenceId;
-    const hasRecurrenceType = tx.recurrence && tx.recurrence !== 'NONE';
-    const isRecurrent = hasRecurrenceId || hasRecurrenceType;
-    
-    console.log('[Delete] Transacción:', {
-      id: tx.id,
-      recurrenceId: tx.recurrenceId,
-      isRecurrenceInstance: tx.isRecurrenceInstance,
-      recurrence: tx.recurrence,
-      status: tx.status,
-      isRecurrent
-    });
-    
-    // Si es recurrente y está pendiente, mostrar modal de opciones
-    if (isRecurrent && tx.status === 'PENDING') {
+    // Para transacciones PENDING, siempre mostrar el modal para que el usuario pueda ver
+    // si es recurrente y decidir qué hacer
+    if (tx.status === 'PENDING') {
       setPendingDeleteTransaction(tx);
       setDeleteRecurrenceScope('THIS_ONLY');
       setShowDeleteRecurrenceOptions(true);
       return;
     }
     
-    // Si no es recurrente, eliminar directamente con confirmación
+    // Para transacciones ya pagadas o canceladas, eliminar directamente con confirmación
     if (!confirm(`¿ELIMINAR DEFINITIVAMENTE "${txDescription}"?\n\nEsta acción NO se puede deshacer.`)) return;
     if (!confirm('¿Estás COMPLETAMENTE seguro? El movimiento se eliminará permanentemente.')) return;
     
@@ -1875,7 +1860,7 @@ export default function TransactionsPage() {
             <div className="flex items-center justify-between p-4 border-b">
               <div className="flex items-center gap-2">
                 <Trash2 className="text-red-500" size={24} />
-                <h2 className="text-lg font-semibold text-gray-900">Eliminar Transacción Recurrente</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Eliminar Transacción</h2>
               </div>
               <button
                 onClick={() => {
@@ -1889,53 +1874,85 @@ export default function TransactionsPage() {
             </div>
             
             <div className="p-4 space-y-4">
-              <p className="text-sm text-gray-600">
-                Esta transacción es parte de una serie recurrente. ¿Qué deseas eliminar?
-              </p>
-              
-              <div className="space-y-3">
-                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="deleteRecurrenceScope"
-                    value="THIS_ONLY"
-                    checked={deleteRecurrenceScope === 'THIS_ONLY'}
-                    onChange={() => setDeleteRecurrenceScope('THIS_ONLY')}
-                    className="mt-1"
-                  />
-                  <div>
-                    <span className="font-medium text-gray-900">Solo esta transacción</span>
-                    <p className="text-sm text-gray-500">
-                      Se eliminará únicamente este movimiento específico
-                    </p>
-                  </div>
-                </label>
-                
-                <label className="flex items-start gap-3 p-3 border border-red-200 rounded-lg cursor-pointer hover:bg-red-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="deleteRecurrenceScope"
-                    value="THIS_AND_FUTURE"
-                    checked={deleteRecurrenceScope === 'THIS_AND_FUTURE'}
-                    onChange={() => setDeleteRecurrenceScope('THIS_AND_FUTURE')}
-                    className="mt-1"
-                  />
-                  <div>
-                    <span className="font-medium text-red-700">Esta y todas las futuras</span>
-                    <p className="text-sm text-red-600">
-                      Se eliminarán este movimiento y todas las transacciones pendientes futuras de esta serie
-                    </p>
-                  </div>
-                </label>
-              </div>
-              
-              {deleteRecurrenceScope === 'THIS_AND_FUTURE' && (
-                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-amber-800 flex items-start gap-2">
-                    <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                    <span>Esta acción eliminará todas las transacciones pendientes futuras de esta recurrencia. Las transacciones ya pagadas o canceladas no se verán afectadas.</span>
-                  </p>
+              {/* Información de la transacción */}
+              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                <p className="font-medium text-gray-900">{pendingDeleteTransaction.description || 'Sin descripción'}</p>
+                <div className="flex items-center gap-4 text-sm text-gray-600">
+                  <span className={pendingDeleteTransaction.type === 'INCOME' ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                    {pendingDeleteTransaction.type === 'INCOME' ? '+' : '-'}{formatCurrency(pendingDeleteTransaction.amount)}
+                  </span>
+                  <span>{formatDate(pendingDeleteTransaction.dueDate)}</span>
                 </div>
+                {pendingDeleteTransaction.recurrenceId && (
+                  <p className="text-xs text-blue-600 flex items-center gap-1">
+                    <Repeat size={12} />
+                    Transacción recurrente (ID: {pendingDeleteTransaction.recurrenceId.slice(-6)})
+                  </p>
+                )}
+                {!pendingDeleteTransaction.recurrenceId && pendingDeleteTransaction.recurrence && pendingDeleteTransaction.recurrence !== 'NONE' && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <Repeat size={12} />
+                    Marcada como recurrente ({pendingDeleteTransaction.recurrence})
+                  </p>
+                )}
+              </div>
+
+              {/* Opciones según si tiene recurrenceId */}
+              {pendingDeleteTransaction.recurrenceId ? (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Esta transacción es parte de una serie recurrente. ¿Qué deseas eliminar?
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                      <input
+                        type="radio"
+                        name="deleteRecurrenceScope"
+                        value="THIS_ONLY"
+                        checked={deleteRecurrenceScope === 'THIS_ONLY'}
+                        onChange={() => setDeleteRecurrenceScope('THIS_ONLY')}
+                        className="mt-1"
+                      />
+                      <div>
+                        <span className="font-medium text-gray-900">Solo esta transacción</span>
+                        <p className="text-sm text-gray-500">
+                          Se eliminará únicamente este movimiento específico
+                        </p>
+                      </div>
+                    </label>
+                    
+                    <label className="flex items-start gap-3 p-3 border border-red-200 rounded-lg cursor-pointer hover:bg-red-50 transition-colors">
+                      <input
+                        type="radio"
+                        name="deleteRecurrenceScope"
+                        value="THIS_AND_FUTURE"
+                        checked={deleteRecurrenceScope === 'THIS_AND_FUTURE'}
+                        onChange={() => setDeleteRecurrenceScope('THIS_AND_FUTURE')}
+                        className="mt-1"
+                      />
+                      <div>
+                        <span className="font-medium text-red-700">Esta y todas las futuras</span>
+                        <p className="text-sm text-red-600">
+                          Se eliminarán este movimiento y todas las transacciones pendientes futuras de esta serie
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                  
+                  {deleteRecurrenceScope === 'THIS_AND_FUTURE' && (
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm text-amber-800 flex items-start gap-2">
+                        <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                        <span>Esta acción eliminará todas las transacciones pendientes futuras de esta recurrencia. Las transacciones ya pagadas o canceladas no se verán afectadas.</span>
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-600">
+                  ¿Estás seguro de que deseas eliminar esta transacción? Esta acción no se puede deshacer.
+                </p>
               )}
             </div>
             
