@@ -350,9 +350,12 @@ export const transactionsApi = {
 
   /**
    * Eliminar transacción
+   * @param id - ID de la transacción
+   * @param deleteFuture - Si true y es recurrente, elimina también las transacciones futuras pendientes
    */
-  async delete(id: string): Promise<{ deleted: boolean; id: string }> {
-    return apiRequest<{ deleted: boolean; id: string }>(`/api/transactions/${id}`, {
+  async delete(id: string, deleteFuture = false): Promise<{ deleted: boolean; id: string; deletedFutureCount?: number }> {
+    const params = deleteFuture ? '?deleteFuture=true' : '';
+    return apiRequest<{ deleted: boolean; id: string; deletedFutureCount?: number }>(`/api/transactions/${id}${params}`, {
       method: 'DELETE',
     });
   },

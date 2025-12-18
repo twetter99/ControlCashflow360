@@ -218,6 +218,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 /**
  * DELETE /api/transactions/[id] - Eliminar transacción (hard delete)
+ * @query deleteFuture - Si true y la transacción es recurrente, elimina también las transacciones futuras pendientes
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   return withErrorHandling(async () => {
@@ -226,6 +227,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { userId } = authResult;
 
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const deleteFuture = searchParams.get('deleteFuture') === 'true';
 
     const db = getAdminDb();
     const docRef = db.collection(COLLECTION).doc(id);
@@ -239,6 +242,53 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     
     if (!verifyOwnership(data.userId, userId)) {
       return errorResponse('No tienes permiso para eliminar esta transacción', 403, 'FORBIDDEN');
+    }
+
+    let deletedFutureCount = 0;
+
+    // Si deleteFuture es true y tiene recurrenceId, eliminar transacciones futuras pendientes
+    if (deleteFuture && data.recurrenceId) {
+      const txDueDate = data.dueDate?.toDate?.() || new Date();
+      
+      // Buscar transacciones futuras pendientes de la misma recurrencia
+      const futureTransactionsSnapshot = await db.collection(COLLECTION)
+        .where('recurrenceId', '==', data.recurrenceId)
+        .where('userId', '==', userId)
+        .where('status', '==', 'PENDING')
+        .get();
+
+      const batch = db.batch();
+      
+      for (const futureDoc of futureTransactionsSnapshot.docs) {
+        // No eliminar la transacción actual (se elimina después)
+        if (futureDoc.id === id) continue;
+        
+        const futureData = futureDoc.data();
+        const futureDueDate = futureData.dueDate?.toDate?.() || new Date();
+        
+        // Solo eliminar si la fecha es >= a la fecha de la transacción actual
+        if (futureDueDate >= txDueDate) {
+          batch.delete(futureDoc.ref);
+          deletedFutureCount++;
+        }
+      }
+      
+      if (deletedFutureCount > 0) {
+        await batch.commit();
+      }
+
+      // Registrar en auditoría la eliminación en cascada
+      await logDelete(userId, 'transaction', id,
+        { 
+          type: data.type, 
+          amount: data.amount, 
+          status: data.status, 
+          description: data.description,
+          deletedFutureCount,
+          recurrenceId: data.recurrenceId 
+        },
+        { entityName: `${data.description || data.type} (y ${deletedFutureCount} futuras)` }
+      );
     }
 
     // Si la transacción estaba PAID, revertir el balance
@@ -259,13 +309,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     await docRef.delete();
 
-    // Registrar en auditoría
-    await logDelete(userId, 'transaction', id,
-      { type: data.type, amount: data.amount, status: data.status, description: data.description },
-      { entityName: data.description || `${data.type} - ${data.amount}` }
-    );
+    // Registrar en auditoría (solo si no se hizo arriba para cascada)
+    if (!deleteFuture || !data.recurrenceId) {
+      await logDelete(userId, 'transaction', id,
+        { type: data.type, amount: data.amount, status: data.status, description: data.description },
+        { entityName: data.description || `${data.type} - ${data.amount}` }
+      );
+    }
 
-    return successResponse({ deleted: true, id });
+    return successResponse({ deleted: true, id, deletedFutureCount });
   });
 }
 

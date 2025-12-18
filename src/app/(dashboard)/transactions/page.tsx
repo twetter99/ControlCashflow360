@@ -89,6 +89,11 @@ export default function TransactionsPage() {
   const [recurrenceUpdateScope, setRecurrenceUpdateScope] = useState<RecurrenceUpdateScope>('THIS_ONLY');
   const [versionChangeReason, setVersionChangeReason] = useState('');
   
+  // Estado para modal de opciones de eliminación de recurrencia
+  const [showDeleteRecurrenceOptions, setShowDeleteRecurrenceOptions] = useState(false);
+  const [pendingDeleteTransaction, setPendingDeleteTransaction] = useState<Transaction | null>(null);
+  const [deleteRecurrenceScope, setDeleteRecurrenceScope] = useState<'THIS_ONLY' | 'THIS_AND_FUTURE'>('THIS_ONLY');
+  
   // Estado para selección múltiple
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -329,22 +334,81 @@ export default function TransactionsPage() {
 
   const handlePermanentDelete = async (transactionId: string, txDescription: string) => {
     if (!user) return;
+    
+    // Buscar la transacción para verificar si es recurrente
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx) return;
+    
+    // Determinar si es recurrente
+    const hasRecurrenceId = tx.recurrenceId && tx.isRecurrenceInstance;
+    const isManualRecurrence = !tx.recurrenceId && tx.recurrence && tx.recurrence !== 'NONE';
+    const isRecurrent = hasRecurrenceId || isManualRecurrence;
+    
+    // Si es recurrente y está pendiente, mostrar modal de opciones
+    if (isRecurrent && tx.status === 'PENDING') {
+      setPendingDeleteTransaction(tx);
+      setDeleteRecurrenceScope('THIS_ONLY');
+      setShowDeleteRecurrenceOptions(true);
+      return;
+    }
+    
+    // Si no es recurrente, eliminar directamente con confirmación
     if (!confirm(`¿ELIMINAR DEFINITIVAMENTE "${txDescription}"?\n\nEsta acción NO se puede deshacer.`)) return;
-    // Doble confirmación para evitar eliminaciones accidentales
     if (!confirm('¿Estás COMPLETAMENTE seguro? El movimiento se eliminará permanentemente.')) return;
+    
+    await executeDelete(transactionId, false);
+  };
+
+  // Función para ejecutar la eliminación (usada tanto para eliminación directa como desde el modal)
+  const executeDelete = async (transactionId: string, deleteFuture: boolean) => {
     try {
-      await transactionsApi.delete(transactionId);
-      setTransactions(prev => prev.filter(tx => tx.id !== transactionId));
+      const result = await transactionsApi.delete(transactionId, deleteFuture);
+      
+      if (deleteFuture && result.deletedFutureCount && result.deletedFutureCount > 0) {
+        // Si se eliminaron futuras, recargar todas las transacciones
+        const transactionsData = await transactionsApi.getAll();
+        setTransactions(transactionsData);
+        toast.success(`Movimiento eliminado junto con ${result.deletedFutureCount} transacciones futuras`);
+      } else {
+        setTransactions(prev => prev.filter(tx => tx.id !== transactionId));
+        toast.success('Movimiento eliminado definitivamente');
+      }
+      
       setSelectedIds(prev => {
         const next = new Set(prev);
         next.delete(transactionId);
         return next;
       });
-      toast.success('Movimiento eliminado definitivamente');
     } catch (error) {
       console.error('Error:', error);
       toast.error('Error al eliminar el movimiento');
     }
+  };
+
+  // Confirmar opción de eliminación de recurrencia
+  const confirmRecurrenceDeleteOption = async () => {
+    if (!pendingDeleteTransaction) return;
+    
+    const txDescription = pendingDeleteTransaction.description || 
+      `${pendingDeleteTransaction.type === 'INCOME' ? 'Ingreso' : 'Gasto'} - ${pendingDeleteTransaction.amount}`;
+    
+    if (deleteRecurrenceScope === 'THIS_ONLY') {
+      if (!confirm(`¿ELIMINAR DEFINITIVAMENTE "${txDescription}"?\n\nEsta acción NO se puede deshacer.`)) {
+        return;
+      }
+    } else {
+      if (!confirm(`¿ELIMINAR "${txDescription}" Y TODAS LAS TRANSACCIONES FUTURAS de esta serie?\n\nEsta acción NO se puede deshacer.`)) {
+        return;
+      }
+    }
+    
+    setShowDeleteRecurrenceOptions(false);
+    await executeDelete(
+      pendingDeleteTransaction.id, 
+      deleteRecurrenceScope === 'THIS_AND_FUTURE'
+    );
+    setPendingDeleteTransaction(null);
+    setDeleteRecurrenceScope('THIS_ONLY');
   };
 
   // Funciones de selección múltiple
@@ -1787,6 +1851,98 @@ export default function TransactionsPage() {
               </Button>
               <Button onClick={confirmRecurrenceEditOption}>
                 Continuar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de opciones de eliminación de recurrencia */}
+      {showDeleteRecurrenceOptions && pendingDeleteTransaction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <Trash2 className="text-red-500" size={24} />
+                <h2 className="text-lg font-semibold text-gray-900">Eliminar Transacción Recurrente</h2>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDeleteRecurrenceOptions(false);
+                  setPendingDeleteTransaction(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                Esta transacción es parte de una serie recurrente. ¿Qué deseas eliminar?
+              </p>
+              
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="deleteRecurrenceScope"
+                    value="THIS_ONLY"
+                    checked={deleteRecurrenceScope === 'THIS_ONLY'}
+                    onChange={() => setDeleteRecurrenceScope('THIS_ONLY')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">Solo esta transacción</span>
+                    <p className="text-sm text-gray-500">
+                      Se eliminará únicamente este movimiento específico
+                    </p>
+                  </div>
+                </label>
+                
+                <label className="flex items-start gap-3 p-3 border border-red-200 rounded-lg cursor-pointer hover:bg-red-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="deleteRecurrenceScope"
+                    value="THIS_AND_FUTURE"
+                    checked={deleteRecurrenceScope === 'THIS_AND_FUTURE'}
+                    onChange={() => setDeleteRecurrenceScope('THIS_AND_FUTURE')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <span className="font-medium text-red-700">Esta y todas las futuras</span>
+                    <p className="text-sm text-red-600">
+                      Se eliminarán este movimiento y todas las transacciones pendientes futuras de esta serie
+                    </p>
+                  </div>
+                </label>
+              </div>
+              
+              {deleteRecurrenceScope === 'THIS_AND_FUTURE' && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800 flex items-start gap-2">
+                    <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                    <span>Esta acción eliminará todas las transacciones pendientes futuras de esta recurrencia. Las transacciones ya pagadas o canceladas no se verán afectadas.</span>
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteRecurrenceOptions(false);
+                  setPendingDeleteTransaction(null);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                variant="danger"
+                onClick={confirmRecurrenceDeleteOption}
+              >
+                Eliminar
               </Button>
             </div>
           </div>
