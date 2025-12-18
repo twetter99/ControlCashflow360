@@ -16,7 +16,9 @@ import {
   Send,
   CheckCircle,
   ArrowUpDown,
-  Calendar
+  Calendar,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import Link from 'next/link';
 import { Transaction, Account } from '@/types';
@@ -64,6 +66,7 @@ export default function TransactionDetailModal({
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'table' | 'grouped'>('grouped');
+  const [isExporting, setIsExporting] = useState(false);
 
   // Obtener categorías y métodos únicos para filtros
   const categories = useMemo(() => {
@@ -197,6 +200,123 @@ export default function TransactionDetailModal({
     return filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0);
   }, [filteredTransactions]);
 
+  // Función para exportar a Excel
+  const handleExportExcel = async () => {
+    if (filteredTransactions.length === 0) return;
+    
+    setIsExporting(true);
+    try {
+      const XLSX = await import('xlsx');
+      
+      const data = filteredTransactions.map(tx => ({
+        'Fecha': formatDate(tx.dueDate),
+        'Concepto': tx.description || '',
+        'Tercero': tx.thirdPartyName || '',
+        'Categoría': tx.category || '',
+        'Método': tx.paymentMethod === 'DIRECT_DEBIT' ? 'Domiciliación' : tx.paymentMethod === 'TRANSFER' ? 'Transferencia' : '',
+        'Importe': type === 'EXPENSE' ? -tx.amount : tx.amount,
+      }));
+      
+      // Agregar fila de total
+      data.push({
+        'Fecha': '',
+        'Concepto': '',
+        'Tercero': '',
+        'Categoría': '',
+        'Método': 'TOTAL:',
+        'Importe': type === 'EXPENSE' ? -filteredTotal : filteredTotal,
+      });
+      
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      worksheet['!cols'] = [
+        { wch: 12 }, // Fecha
+        { wch: 35 }, // Concepto
+        { wch: 25 }, // Tercero
+        { wch: 15 }, // Categoría
+        { wch: 15 }, // Método
+        { wch: 15 }, // Importe
+      ];
+      
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, title);
+      
+      const fileName = `${title.replace(/\s+/g, '_')}_${monthLabel.replace(/\s+/g, '_')}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+    } catch (error) {
+      console.error('Error exportando a Excel:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Función para exportar a PDF
+  const handleExportPDF = async () => {
+    if (filteredTransactions.length === 0) return;
+    
+    setIsExporting(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      });
+      
+      // Título
+      doc.setFontSize(16);
+      doc.setTextColor(33, 37, 41);
+      doc.text(`${title} - ${monthLabel}`, 14, 15);
+      
+      // Subtítulo
+      doc.setFontSize(10);
+      doc.setTextColor(108, 117, 125);
+      doc.text(`Exportado: ${new Date().toLocaleString('es-ES')} | ${filteredTransactions.length} movimientos`, 14, 22);
+      
+      // Total
+      doc.setFontSize(12);
+      doc.setTextColor(type === 'INCOME' ? 40 : 220, type === 'INCOME' ? 167 : 53, type === 'INCOME' ? 69 : 69);
+      doc.text(`Total: ${formatCurrency(filteredTotal)}`, 250, 15, { align: 'right' });
+      
+      // Tabla
+      const tableData = filteredTransactions.map(tx => [
+        formatDate(tx.dueDate),
+        (tx.description || '').substring(0, 35) + ((tx.description || '').length > 35 ? '...' : ''),
+        (tx.thirdPartyName || '').substring(0, 25) + ((tx.thirdPartyName || '').length > 25 ? '...' : ''),
+        tx.category || '',
+        tx.paymentMethod === 'DIRECT_DEBIT' ? 'Domiciliación' : tx.paymentMethod === 'TRANSFER' ? 'Transferencia' : '',
+        formatCurrency(tx.amount),
+      ]);
+      
+      autoTable(doc, {
+        startY: 28,
+        head: [['Fecha', 'Concepto', 'Tercero', 'Categoría', 'Método', 'Importe']],
+        body: tableData,
+        foot: [['', '', '', '', 'TOTAL:', formatCurrency(filteredTotal)]],
+        styles: { fontSize: 9, cellPadding: 2 },
+        headStyles: { fillColor: type === 'INCOME' ? [34, 197, 94] : [239, 68, 68], textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 60 },
+          2: { cellWidth: 45 },
+          3: { cellWidth: 30 },
+          4: { cellWidth: 30 },
+          5: { cellWidth: 30, halign: 'right' },
+        },
+      });
+      
+      const fileName = `${title.replace(/\s+/g, '_')}_${monthLabel.replace(/\s+/g, '_')}.pdf`;
+      doc.save(fileName);
+    } catch (error) {
+      console.error('Error exportando a PDF:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -279,6 +399,28 @@ export default function TransactionDetailModal({
                   className={`px-3 py-2 text-sm ${viewMode === 'table' ? 'bg-primary-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                 >
                   <Filter size={16} />
+                </button>
+              </div>
+
+              {/* Botones de exportación */}
+              <div className="flex items-center gap-1 ml-2">
+                <button
+                  onClick={handleExportExcel}
+                  disabled={isExporting || filteredTransactions.length === 0}
+                  className="flex items-center gap-1 px-3 py-2 text-sm border rounded-lg bg-white text-gray-600 hover:bg-green-50 hover:text-green-700 hover:border-green-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title="Descargar Excel"
+                >
+                  <FileSpreadsheet size={16} />
+                  <span className="hidden sm:inline">Excel</span>
+                </button>
+                <button
+                  onClick={handleExportPDF}
+                  disabled={isExporting || filteredTransactions.length === 0}
+                  className="flex items-center gap-1 px-3 py-2 text-sm border rounded-lg bg-white text-gray-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title="Descargar PDF"
+                >
+                  <Download size={16} />
+                  <span className="hidden sm:inline">PDF</span>
                 </button>
               </div>
             </div>
