@@ -339,10 +339,21 @@ export default function TransactionsPage() {
     const tx = transactions.find(t => t.id === transactionId);
     if (!tx) return;
     
-    // Determinar si es recurrente
-    const hasRecurrenceId = tx.recurrenceId && tx.isRecurrenceInstance;
-    const isManualRecurrence = !tx.recurrenceId && tx.recurrence && tx.recurrence !== 'NONE';
-    const isRecurrent = hasRecurrenceId || isManualRecurrence;
+    // Determinar si es recurrente de cualquier forma:
+    // 1. Tiene recurrenceId (es parte de una cadena de recurrencia)
+    // 2. Tiene recurrence != 'NONE' (es una transacción recurrente manual)
+    const hasRecurrenceId = !!tx.recurrenceId;
+    const hasRecurrenceType = tx.recurrence && tx.recurrence !== 'NONE';
+    const isRecurrent = hasRecurrenceId || hasRecurrenceType;
+    
+    console.log('[Delete] Transacción:', {
+      id: tx.id,
+      recurrenceId: tx.recurrenceId,
+      isRecurrenceInstance: tx.isRecurrenceInstance,
+      recurrence: tx.recurrence,
+      status: tx.status,
+      isRecurrent
+    });
     
     // Si es recurrente y está pendiente, mostrar modal de opciones
     if (isRecurrent && tx.status === 'PENDING') {
