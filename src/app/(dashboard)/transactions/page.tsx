@@ -432,14 +432,36 @@ export default function TransactionsPage() {
     if (!user || selectedIds.size === 0) return;
     
     const count = selectedIds.size;
-    if (!confirm(`¿ELIMINAR DEFINITIVAMENTE ${count} movimiento${count > 1 ? 's' : ''}?\n\nEsta acción NO se puede deshacer.`)) return;
-    if (!confirm(`Confirma: Vas a eliminar ${count} movimiento${count > 1 ? 's' : ''} permanentemente.`)) return;
+    const idsToDelete = Array.from(selectedIds);
+    
+    // Si solo hay una transacción seleccionada, usar el flujo individual con modal
+    if (count === 1) {
+      const tx = transactions.find(t => t.id === idsToDelete[0]);
+      if (tx) {
+        // Si está pendiente, mostrar modal
+        if (tx.status === 'PENDING') {
+          setPendingDeleteTransaction(tx);
+          setDeleteRecurrenceScope('THIS_ONLY');
+          setShowDeleteRecurrenceOptions(true);
+          return;
+        }
+        // Si no está pendiente, eliminar directamente
+        const txDescription = tx.description || tx.thirdPartyName || 'Sin descripción';
+        if (!confirm(`¿ELIMINAR DEFINITIVAMENTE "${txDescription}"?\n\nEsta acción NO se puede deshacer.`)) return;
+        if (!confirm('¿Estás COMPLETAMENTE seguro? El movimiento se eliminará permanentemente.')) return;
+        await executeDelete(tx.id, false);
+        setSelectedIds(new Set());
+        return;
+      }
+    }
+    
+    // Para múltiples transacciones, usar el flujo masivo
+    if (!confirm(`¿ELIMINAR DEFINITIVAMENTE ${count} movimientos?\n\nEsta acción NO se puede deshacer.`)) return;
+    if (!confirm(`Confirma: Vas a eliminar ${count} movimientos permanentemente.`)) return;
     
     setIsDeleting(true);
     let deleted = 0;
     let errors = 0;
-    
-    const idsToDelete = Array.from(selectedIds);
     
     try {
       for (const id of idsToDelete) {
@@ -457,7 +479,7 @@ export default function TransactionsPage() {
       if (errors > 0) {
         toast.success(`${deleted} eliminados, ${errors} con error`);
       } else {
-        toast.success(`${deleted} movimiento${deleted > 1 ? 's' : ''} eliminado${deleted > 1 ? 's' : ''} definitivamente`);
+        toast.success(`${deleted} movimientos eliminados definitivamente`);
       }
     } catch (error) {
       console.error('Error:', error);
